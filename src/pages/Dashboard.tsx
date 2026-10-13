@@ -30,6 +30,7 @@ import {
 } from '../lib/utils';
 import { fastForward } from '../lib/simulator';
 import { OledPreview } from '../components/OledPreview';
+import { VirtualHardwareStage } from '../components/VirtualHardwareStage';
 import { Modal } from '../components/ui/Modal';
 import { Badge } from '../components/ui/Badge';
 
@@ -203,6 +204,9 @@ export function Dashboard() {
           <span className="text-xs opacity-75 font-mono">Last seen: {status?.last_seen ? formatInTz(status.last_seen, tz, 'HH:mm:ss') : 'Never'}</span>
         </div>
       )}
+
+      {/* Interactive Virtual Hardware Simulator Stage */}
+      <VirtualHardwareStage />
 
       {/* Main 2-column layout matching the Sage Bot physical enclosure */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">

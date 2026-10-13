@@ -8,3 +8,8 @@
 > Commits you push to the connected branch sync back to Lovable and show up in
 > the editor, so keep the branch in a working state.
 <!-- LOVABLE:END -->
+
+## Sage Bot architecture
+- Keep user medication, schedule, history, and device data in Cloud tables scoped to the signed-in owner; row security is the data boundary because these records are sensitive.
+- Keep the dispenser workspace in a protected named route and use a public root for authentication, so unauthenticated users never render private health records.
+- Keep hardware simulation and schedule evaluation in the browser while Sage Bot is open; device-side access must use a separately provisioned credential rather than public access.

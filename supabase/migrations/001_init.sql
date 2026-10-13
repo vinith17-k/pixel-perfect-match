@@ -14,8 +14,6 @@ drop table if exists medicines cascade;
 drop table if exists hardware_config cascade;
 drop table if exists device_status cascade;
 drop table if exists profiles cascade;
-drop trigger if exists on_auth_user_created_sage_bot on auth.users;
-drop function if exists public.handle_sage_bot_signup();
 
 -- ----------------------------------------------------------
 -- Medicines catalogue
@@ -155,6 +153,12 @@ end $$;
 -- ----------------------------------------------------------
 -- Enable Realtime for all tables
 -- ----------------------------------------------------------
-alter publication supabase_realtime add table
-  device_status, commands, dose_events, slots,
-  hardware_config, schedules, medicines;
+do $$
+begin
+  alter publication supabase_realtime add table
+    device_status, commands, dose_events, slots,
+    hardware_config, schedules, medicines;
+exception when others then
+  -- Ignore if already added
+  null;
+end $$;

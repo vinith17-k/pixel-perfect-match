@@ -5,6 +5,18 @@
 
 create extension if not exists "pgcrypto";
 
+-- Drop existing tables to ensure clean schema (replaces Lovable multi-user auth tables)
+drop table if exists commands cascade;
+drop table if exists dose_events cascade;
+drop table if exists schedules cascade;
+drop table if exists slots cascade;
+drop table if exists medicines cascade;
+drop table if exists hardware_config cascade;
+drop table if exists device_status cascade;
+drop table if exists profiles cascade;
+drop trigger if exists on_auth_user_created_sage_bot on auth.users;
+drop function if exists public.handle_sage_bot_signup();
+
 -- ----------------------------------------------------------
 -- Medicines catalogue
 -- ----------------------------------------------------------

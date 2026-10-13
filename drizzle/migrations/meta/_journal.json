@@ -1,5 +1,13 @@
 {
   "version": "7",
   "dialect": "postgresql",
-  "entries": []
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1791884198444,
+      "tag": "0000_create_sage_bot_private_records",
+      "breakpoints": true
+    }
+  ]
 }

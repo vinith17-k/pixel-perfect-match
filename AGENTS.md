@@ -13,3 +13,4 @@
 - Keep user medication, schedule, history, and device data in Cloud tables scoped to the signed-in owner; row security is the data boundary because these records are sensitive.
 - Keep the dispenser workspace in a protected named route and use a public root for authentication, so unauthenticated users never render private health records.
 - Keep hardware simulation and schedule evaluation in the browser while Sage Bot is open; device-side access must use a separately provisioned credential rather than public access.
+- Never put roles on profiles or user metadata; if Sage Bot later needs role-based permissions, store roles in a separate protected table and validate them server-side.

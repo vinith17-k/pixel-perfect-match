@@ -1,16 +1,14 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseUrl =
+  import.meta.env.VITE_SUPABASE_URL ||
+  'https://tckgvgqmnmbfyzelctbr.supabase.co';
+
 const supabaseKey =
   import.meta.env.VITE_SUPABASE_ANON_KEY ||
-  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+  'sb_publishable_hcw5fVXfP8D0IgrXbJ_tqA_m7qQU2jP';
 
-if (!supabaseUrl || !supabaseKey) {
-  throw new Error(
-    'Missing Supabase environment variables. ' +
-    'Check your .env file for VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.'
-  );
-}
 
 // Support both traditional JWT anon keys and new Supabase publishable keys (sb_publishable_...)
 const customFetch: typeof fetch = (input, init) => {

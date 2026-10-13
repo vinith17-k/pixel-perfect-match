@@ -29,8 +29,9 @@ export function useSlots() {
     fetchSlots();
 
     // Subscribe to both slots and medicines so joins stay fresh
+    const channelId = `slots-${Math.random().toString(36).slice(2, 9)}`;
     const slotsChannel = supabase
-      .channel('slots-changes')
+      .channel(channelId)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'slots' },

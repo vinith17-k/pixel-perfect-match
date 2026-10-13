@@ -28,8 +28,9 @@ export function useCommands() {
   useEffect(() => {
     fetchCommands();
 
+    const channelId = `commands-${Math.random().toString(36).slice(2, 9)}`;
     const channel = supabase
-      .channel('commands-changes')
+      .channel(channelId)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'commands' },

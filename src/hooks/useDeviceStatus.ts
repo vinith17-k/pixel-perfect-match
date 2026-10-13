@@ -29,8 +29,9 @@ export function useDeviceStatus() {
   useEffect(() => {
     fetchStatus();
 
+    const channelId = `dev-status-${Math.random().toString(36).slice(2, 9)}`;
     const channel = supabase
-      .channel('device-status-changes')
+      .channel(channelId)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'device_status' },

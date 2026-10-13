@@ -30,15 +30,17 @@ export function useHardwareConfig() {
     // Initial fetch
     fetchConfig();
 
-    // Realtime subscription
+    // Realtime subscription with unique channel name
+    const channelId = `hw-config-${Math.random().toString(36).slice(2, 9)}`;
     const channel = supabase
-      .channel('hardware-config-changes')
+      .channel(channelId)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'hardware_config' },
         () => { fetchConfig(); }
       )
       .subscribe();
+
 
     // Fallback polling every 5 seconds in case realtime drops
     pollRef.current = setInterval(fetchConfig, 5000);

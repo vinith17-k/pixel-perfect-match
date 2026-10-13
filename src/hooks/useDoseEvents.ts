@@ -49,8 +49,9 @@ export function useDoseEvents(dateRange: DateRange = {}) {
   useEffect(() => {
     fetchEvents();
 
+    const channelId = `dose-events-${Math.random().toString(36).slice(2, 9)}`;
     const channel = supabase
-      .channel('dose-events-changes')
+      .channel(channelId)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'dose_events' },

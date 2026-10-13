@@ -113,6 +113,7 @@ export type Database = {
           created_at: string
           dose: string
           id: string
+          is_demo: boolean
           medicine_name: string
           schedule_id: string | null
           scheduled_for: string
@@ -127,6 +128,7 @@ export type Database = {
           created_at?: string
           dose?: string
           id?: string
+          is_demo?: boolean
           medicine_name: string
           schedule_id?: string | null
           scheduled_for: string
@@ -141,6 +143,7 @@ export type Database = {
           created_at?: string
           dose?: string
           id?: string
+          is_demo?: boolean
           medicine_name?: string
           schedule_id?: string | null
           scheduled_for?: string
@@ -242,6 +245,7 @@ export type Database = {
           created_at: string
           dose: string
           id: string
+          is_demo: boolean
           name: string
           notes: string
           user_id: string
@@ -251,6 +255,7 @@ export type Database = {
           created_at?: string
           dose?: string
           id?: string
+          is_demo?: boolean
           name: string
           notes?: string
           user_id: string
@@ -260,6 +265,7 @@ export type Database = {
           created_at?: string
           dose?: string
           id?: string
+          is_demo?: boolean
           name?: string
           notes?: string
           user_id?: string
@@ -301,6 +307,7 @@ export type Database = {
           days: number[]
           enabled: boolean
           id: string
+          is_demo: boolean
           medicine_id: string | null
           pills_per_dose: number
           slot_number: number
@@ -312,6 +319,7 @@ export type Database = {
           days?: number[]
           enabled?: boolean
           id?: string
+          is_demo?: boolean
           medicine_id?: string | null
           pills_per_dose?: number
           slot_number: number
@@ -323,6 +331,7 @@ export type Database = {
           days?: number[]
           enabled?: boolean
           id?: string
+          is_demo?: boolean
           medicine_id?: string | null
           pills_per_dose?: number
           slot_number?: number

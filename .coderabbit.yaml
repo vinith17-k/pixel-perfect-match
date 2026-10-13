@@ -1,0 +1,23 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: "en-US"
+tone_instructions: "Be concise, analytical, and prioritize embedded hardware compatibility and React 19 safety."
+early_access: false
+reviews:
+  profile: "chill"
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: false
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - "main"
+  path_instructions:
+    - path: "firmware/**"
+      instructions: "Review C++/Arduino code for ESP32 DevKit V1. Verify non-blocking timing, SSL/TLS handling, correct GPIO assignment (SDA=21, SCL=22), and memory stability."
+    - path: "src/**"
+      instructions: "Review React/TypeScript code. Verify proper state management, Supabase Realtime channel isolation, responsive design, and error boundaries."
+chat:
+  auto_reply: true

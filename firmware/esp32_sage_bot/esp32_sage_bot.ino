@@ -32,9 +32,8 @@
 #include <ArduinoJson.h>
 #include <time.h>
 
-// ─── USER CONFIGURATION ──────────────────────────────────────────────────────
-const char* WIFI_SSID     = "YOUR_WIFI_NAME";        // <-- Replace with your Wi-Fi SSID
-const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";    // <-- Replace with your Wi-Fi Password
+const char* WIFI_SSID     = "moto g85 5G_4167";
+const char* WIFI_PASSWORD = "Shadow@3Zc";
 
 const char* SUPABASE_URL  = "https://tckgvgqmnmbfyzelctbr.supabase.co";
 const char* SUPABASE_KEY  = "sb_publishable_hcw5fVXfP8D0IgrXbJ_tqA_m7qQU2jP";

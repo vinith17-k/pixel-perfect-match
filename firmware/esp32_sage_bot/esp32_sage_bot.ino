@@ -28,7 +28,7 @@
 #include <HTTPClient.h>
 #include <Wire.h>
 #include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
+#include <Adafruit_SH110X.h>
 #include <ArduinoJson.h>
 #include <time.h>
 
@@ -44,14 +44,14 @@ const int   DAYLIGHT_OFFSET_SEC = 0;
 const char* NTP_SERVER_1        = "pool.ntp.org";
 const char* NTP_SERVER_2        = "time.google.com";
 
-// ─── OLED DISPLAY CONFIGURATION ──────────────────────────────────────────────
+// ─── OLED DISPLAY CONFIGURATION (1.3" SH1106 / 0.96" SSD1306) ────────────────
 #define SCREEN_WIDTH  128
 #define SCREEN_HEIGHT 64
 #define OLED_RESET    -1
 #define PIN_SDA       21
 #define PIN_SCL       22
 
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+Adafruit_SH1106G display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 // ─── APPLICATION STATE ────────────────────────────────────────────────────────
 enum DeviceState {
@@ -125,14 +125,14 @@ void setup() {
     Serial.printf("[I2C] Using OLED at address 0x%02X\n", foundAddress);
   }
 
-  if (!display.begin(SSD1306_SWITCHCAPVCC, foundAddress)) {
-    Serial.println("[Error] SSD1306 allocation failed.");
+  if (!display.begin(foundAddress, true)) {
+    Serial.println("[Error] SH1106 initialization failed.");
   } else {
-    Serial.println("[OLED] Display initialized successfully.");
+    Serial.println("[OLED] SH1106 display initialized successfully.");
   }
 
   display.clearDisplay();
-  display.setTextColor(SSD1306_WHITE);
+  display.setTextColor(SH110X_WHITE);
 
   // Show Boot Screen
   updateScreen("boot", "SAGE BOT", "Starting up...", "Connecting Wi-Fi");
@@ -251,7 +251,7 @@ void renderOled() {
   }
   else if (currentScreenName == "home") {
     // Header Bar: Wi-Fi dot + Time (Big)
-    display.fillRect(0, 0, 4, 4, SSD1306_WHITE);
+    display.fillRect(0, 0, 4, 4, SH110X_WHITE);
     display.setTextSize(2);
     display.setCursor(16, 4);
     display.print(screenLines[0]); // Time e.g. "10:42"
@@ -262,7 +262,7 @@ void renderOled() {
     display.print(screenLines[1]); // Date e.g. "Tue 13 Oct"
 
     // Horizontal separator
-    display.drawFastHLine(0, 40, 128, SSD1306_WHITE);
+    display.drawFastHLine(0, 40, 128, SH110X_WHITE);
 
     // Next dose info
     display.setCursor(0, 48);
@@ -270,14 +270,14 @@ void renderOled() {
   }
   else if (currentScreenName == "alarm") {
     // Flashing banner
-    display.fillRect(0, 0, 128, 14, SSD1306_WHITE);
-    display.setTextColor(SSD1306_BLACK, SSD1306_WHITE);
+    display.fillRect(0, 0, 128, 14, SH110X_WHITE);
+    display.setTextColor(SH110X_BLACK, SH110X_WHITE);
     display.setTextSize(1);
     display.setCursor(18, 3);
     display.print("TAKE MEDICINE");
 
     // Medicine Name & Dose
-    display.setTextColor(SSD1306_WHITE);
+    display.setTextColor(SH110X_WHITE);
     display.setTextSize(2);
     display.setCursor(0, 20);
     display.print(screenLines[1].substring(0, 10));
@@ -299,8 +299,8 @@ void renderOled() {
     display.print(screenLines[1].substring(0, 10));
 
     // Checkmark icon
-    display.drawLine(48, 52, 58, 62, SSD1306_WHITE);
-    display.drawLine(58, 62, 80, 44, SSD1306_WHITE);
+    display.drawLine(48, 52, 58, 62, SH110X_WHITE);
+    display.drawLine(58, 62, 80, 44, SH110X_WHITE);
   }
   else if (currentScreenName == "loading") {
     display.setTextSize(2);

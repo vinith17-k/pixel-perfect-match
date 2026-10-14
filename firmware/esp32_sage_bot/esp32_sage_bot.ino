@@ -35,8 +35,8 @@
 const char* WIFI_SSID     = "moto g85 5G_4167";
 const char* WIFI_PASSWORD = "Shadow@3Zc";
 
-const char* SUPABASE_URL  = "https://tckgvgqmnmbfyzelctbr.supabase.co";
-const char* SUPABASE_KEY  = "sb_publishable_hcw5fVXfP8D0IgrXbJ_tqA_m7qQU2jP";
+const char* SUPABASE_URL  = "https://bhipuyxwjlcfkiguammh.supabase.co";
+const char* SUPABASE_KEY  = "sb_publishable_Tq02iWx1p5wznqj2ifGvvA_gDEEXkuI";
 
 // NTP Timezone settings: Default Asia/Kolkata (UTC + 5:30 = 19800 seconds)
 const long  GMT_OFFSET_SEC      = 19800;
@@ -48,7 +48,6 @@ const char* NTP_SERVER_2        = "time.google.com";
 #define SCREEN_WIDTH  128
 #define SCREEN_HEIGHT 64
 #define OLED_RESET    -1
-#define OLED_ADDR     0x3C
 #define PIN_SDA       21
 #define PIN_SCL       22
 
@@ -105,11 +104,31 @@ void setup() {
   delay(500);
   Serial.println("\n[Sage Bot] Starting ESP32 Controller...");
 
-  // Initialize I2C and OLED
+  // Initialize I2C and scan for OLED address
   Wire.begin(PIN_SDA, PIN_SCL);
-  if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) {
-    Serial.println("[Error] SSD1306 allocation failed. Check I2C wiring (D21=SDA, D22=SCL).");
-    while (true) delay(100);
+  Serial.println("[I2C] Scanning I2C bus (D21=SDA, D22=SCL)...");
+  uint8_t foundAddress = 0;
+  for (uint8_t addr = 1; addr < 127; addr++) {
+    Wire.beginTransmission(addr);
+    if (Wire.endTransmission() == 0) {
+      Serial.printf("[I2C] Found active device at 0x%02X\n", addr);
+      if (addr == 0x3C || addr == 0x3D) {
+        foundAddress = addr;
+      }
+    }
+  }
+
+  if (foundAddress == 0) {
+    Serial.println("[Warning] No OLED found on 0x3C or 0x3D! Defaulting to 0x3C. Check VSS/VDD/SDA/SCL wiring.");
+    foundAddress = 0x3C;
+  } else {
+    Serial.printf("[I2C] Using OLED at address 0x%02X\n", foundAddress);
+  }
+
+  if (!display.begin(SSD1306_SWITCHCAPVCC, foundAddress)) {
+    Serial.println("[Error] SSD1306 allocation failed.");
+  } else {
+    Serial.println("[OLED] Display initialized successfully.");
   }
 
   display.clearDisplay();

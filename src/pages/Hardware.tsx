@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Monitor,
   RotateCw,
@@ -162,7 +162,7 @@ function PartCard({ partKey, config, commands, onToggle, toggling }: PartCardPro
   const [testState, setTestState] = useState<TestState>({ phase: 'idle' });
 
   // Watch for command completion
-  useMemo(() => {
+  useEffect(() => {
     if (testState.phase !== 'waiting') return;
     const cmd = commands.find((c) => c.id === testState.commandId);
     if (cmd && (cmd.status === 'done' || cmd.status === 'failed' || cmd.status === 'simulated')) {

@@ -134,6 +134,28 @@ export function Schedule() {
       const timeFormatted = `${formTime}:00`;
 
       if (editingSchedule) {
+        try {
+          const raw = localStorage.getItem('sage_local_schedules');
+          if (raw) {
+            const list: Schedule[] = JSON.parse(raw);
+            const updated = list.map((s) =>
+              s.id === editingSchedule.id
+                ? {
+                    ...s,
+                    slot_number: formSlot,
+                    medicine_id: slot.medicine_id,
+                    time_of_day: timeFormatted,
+                    days: formDays,
+                    pills_per_dose: formPills,
+                    enabled: formEnabled,
+                    medicine: slot.medicine,
+                  }
+                : s
+            );
+            localStorage.setItem('sage_local_schedules', JSON.stringify(updated));
+          }
+        } catch {}
+
         const { error } = await supabase
           .from('schedules')
           .update({
@@ -149,6 +171,25 @@ export function Schedule() {
         if (error) throw error;
         toast.success('Schedule updated.');
       } else {
+        const newSchedId = `sched-${Date.now()}`;
+        const newEntry: Schedule = {
+          id: newSchedId,
+          slot_number: formSlot,
+          medicine_id: slot.medicine_id,
+          time_of_day: timeFormatted,
+          days: formDays,
+          pills_per_dose: formPills,
+          enabled: formEnabled,
+          medicine: slot.medicine,
+          created_at: new Date().toISOString(),
+        };
+
+        try {
+          const raw = localStorage.getItem('sage_local_schedules');
+          const list: Schedule[] = raw ? JSON.parse(raw) : [];
+          localStorage.setItem('sage_local_schedules', JSON.stringify([...list, newEntry]));
+        } catch {}
+
         const { error } = await supabase.from('schedules').insert({
           slot_number: formSlot,
           medicine_id: slot.medicine_id,
@@ -172,6 +213,15 @@ export function Schedule() {
   // Toggle enabled
   const handleToggleEnabled = async (sched: Schedule) => {
     try {
+      try {
+        const raw = localStorage.getItem('sage_local_schedules');
+        if (raw) {
+          const list: Schedule[] = JSON.parse(raw);
+          const updated = list.map((s) => (s.id === sched.id ? { ...s, enabled: !s.enabled } : s));
+          localStorage.setItem('sage_local_schedules', JSON.stringify(updated));
+        }
+      } catch {}
+
       const { error } = await supabase
         .from('schedules')
         .update({ enabled: !sched.enabled })
@@ -189,6 +239,15 @@ export function Schedule() {
   const handleDelete = async (id: string) => {
     if (!confirm('Are you sure you want to delete this schedule?')) return;
     try {
+      try {
+        const raw = localStorage.getItem('sage_local_schedules');
+        if (raw) {
+          const list: Schedule[] = JSON.parse(raw);
+          const updated = list.filter((s) => s.id !== id);
+          localStorage.setItem('sage_local_schedules', JSON.stringify(updated));
+        }
+      } catch {}
+
       const { error } = await supabase.from('schedules').delete().eq('id', id);
       if (error) throw error;
       toast.success('Schedule deleted.');

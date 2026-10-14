@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
 import {
-  Play,
   RotateCw,
   Bell,
   Volume2,
@@ -11,26 +10,24 @@ import {
   ChevronUp,
   Cpu,
   Zap,
-  Info,
+  Home,
   CheckCircle2,
-  Flame,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useHardwareConfig } from '../hooks/useHardwareConfig';
 import { useDeviceStatus } from '../hooks/useDeviceStatus';
 import { useSlots } from '../hooks/useSlots';
 import { useDoseEvents } from '../hooks/useDoseEvents';
-import { useAppStore, useAppDispatch } from '../stores/appStore';
+import { useAppStore } from '../stores/appStore';
 import { sendCommand, markTaken } from '../lib/commands';
 import { OledPreview } from './OledPreview';
 
 export function VirtualHardwareStage() {
-  const { config, update: updateConfig } = useHardwareConfig();
+  const { config } = useHardwareConfig();
   const { status, isOnline } = useDeviceStatus();
   const { slots } = useSlots();
   const { dueEvents } = useDoseEvents();
   const { simulatorMode } = useAppStore();
-  const dispatch = useAppDispatch();
 
   // Expanded panel state
   const [isExpanded, setIsExpanded] = useState(true);
@@ -63,7 +60,7 @@ export function VirtualHardwareStage() {
             const osc = audioCtxRef.current.createOscillator();
             const gain = audioCtxRef.current.createGain();
             osc.type = 'square';
-            osc.frequency.setValueAtTime(880, audioCtxRef.current.currentTime); // 880Hz buzzer
+            osc.frequency.setValueAtTime(880, audioCtxRef.current.currentTime);
             gain.gain.setValueAtTime(0.08, audioCtxRef.current.currentTime);
             gain.gain.exponentialRampToValueAtTime(0.001, audioCtxRef.current.currentTime + 0.15);
             osc.connect(gain);
@@ -72,7 +69,7 @@ export function VirtualHardwareStage() {
             osc.stop(audioCtxRef.current.currentTime + 0.15);
           }
         } catch {
-          // Audio context might be restricted before user gesture
+          // Audio context might be restricted
         }
       }, 700);
     } else {
@@ -86,23 +83,47 @@ export function VirtualHardwareStage() {
     };
   }, [hasDueDose, soundEnabled, config?.has_buzzer]);
 
-  // Rotate disc smoothly to slot
-  const rotateToSlot = (slotNum: number) => {
+  // Rotate disc smoothly to slot (8 slots, 45 deg per sector)
+  // Sector 1 is 0° to 45°. Moving slot N to the 0°-45° window rotates by -(N-1)*45 deg.
+  const rotateToSlot = async (slotNum: number) => {
     if (isRotating) return;
     setIsRotating(true);
     setCurrentSlot(slotNum);
-    // 8 slots = 45 degrees per slot
-    const targetAngle = (slotNum - 1) * -45;
+    const targetAngle = -(slotNum - 1) * 45;
     setDiscAngle(targetAngle);
-    toast.info(`Stepper: rotating motor to Slot ${slotNum}...`);
+    toast.info(`Rotating carousel to Slot ${slotNum}...`);
+
+    // Dispatch physical command to ESP32 stepper
+    try {
+      await sendCommand('rotate_to_slot', { slot: slotNum, mode: 'dispense' });
+    } catch {
+      // offline simulation
+    }
 
     setTimeout(() => {
       setIsRotating(false);
-      toast.success(`Disc arrived at Slot ${slotNum}`);
+      toast.success(`Slot ${slotNum} aligned at 0°–45° dispensing window!`);
+    }, 1100);
+  };
+
+  // Home disc to Slot 1 (Magnet)
+  const handleHomeDisc = async () => {
+    if (isRotating) return;
+    setIsRotating(true);
+    toast.info('Homing disc to Slot 1 (0°–45° Hall magnet)...');
+    try {
+      await sendCommand('home', {});
+    } catch {}
+
+    setTimeout(() => {
+      setCurrentSlot(1);
+      setDiscAngle(0);
+      setIsRotating(false);
+      toast.success('Disc homed: Slot 1 is at 0°–45° window.');
     }, 1200);
   };
 
-  // Simulate pushing physical button
+  // Simulate pushing physical tactile button
   const handlePhysicalButtonPress = async () => {
     setIsButtonPressed(true);
     setTimeout(() => setIsButtonPressed(false), 250);
@@ -117,33 +138,32 @@ export function VirtualHardwareStage() {
     }
   };
 
-  // Simulate dropping a pill through IR shutter
+  // Simulate dropping pill through chute
   const handleDropPill = () => {
     setIsShutterOpen(true);
     setIsIrTriggered(true);
-    toast.info('Servo shutter opening...');
+    toast.info('Pill passing through dispensing aperture...');
 
     setTimeout(() => {
-      toast.success('IR Sensor: pill passage confirmed (beam broken)!');
+      toast.success('Medicine dispensed into retrieval tray!');
       setTimeout(() => {
         setIsIrTriggered(false);
         setIsShutterOpen(false);
-        toast.info('Servo shutter closed.');
-      }, 900);
-    }, 600);
+      }, 700);
+    }, 500);
   };
 
   // Trigger test alarm
   const handleTriggerAlarm = () => {
     setAlertActive(true);
     if (!soundEnabled) {
-      toast.warning('Alarm triggered! (Enable sound below to hear the buzzer)');
+      toast.warning('Alarm triggered! (Enable buzzer audio to hear the alert)');
     } else {
       toast.warning('Buzzer sounding! Alarm active on Slot ' + currentSlot);
     }
   };
 
-  // Fallback slots if DB empty
+  // Fallback slots if DB is empty
   const displaySlots = slots.length > 0
     ? slots
     : Array.from({ length: 8 }, (_, i) => ({
@@ -168,13 +188,13 @@ export function VirtualHardwareStage() {
           <Cpu className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
           <div>
             <h3 className="text-sm font-bold tracking-wide text-slate-800 dark:text-slate-100 uppercase flex items-center gap-1.5">
-              Interactive Virtual Hardware Stage
+              Interactive Hardware Carousel
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 font-mono font-bold">
-                PRO SIMULATOR
+                8 SECTORS (45°)
               </span>
             </h3>
             <p className="text-[11px] text-muted-foreground font-mono">
-              Live physics, motor rotation, sensors, and tactile controls
+              Slot 1 = 0° to 45° Dispensing & Loading Sector &middot; Synchronized with ESP32
             </p>
           </div>
         </div>
@@ -218,155 +238,203 @@ export function VirtualHardwareStage() {
           {/* Main Visual Arena: Disc on Left + ESP32 & OLED on Right */}
           <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-center">
             
-            {/* 1. Physical Rotating Disc Arena (7 cols on desktop) */}
+            {/* 1. Physical Rotating Disc Arena (6 cols) */}
             <div className="md:col-span-6 flex flex-col items-center justify-center p-4 bg-slate-200/50 dark:bg-slate-950/60 rounded-2xl border border-slate-300 dark:border-slate-800 relative">
-              <div className="text-xs font-bold font-mono tracking-widest text-slate-500 uppercase mb-2 flex items-center gap-1.5">
-                <RotateCw className={`w-3.5 h-3.5 ${isRotating ? 'animate-spin text-emerald-600' : ''}`} />
-                <span>8-Slot Dispenser Disc (Slot {currentSlot} at Chute)</span>
+              <div className="text-xs font-bold font-mono tracking-widest text-slate-600 dark:text-slate-400 uppercase mb-2 flex items-center justify-between w-full px-2">
+                <span className="flex items-center gap-1.5">
+                  <RotateCw className={`w-3.5 h-3.5 ${isRotating ? 'animate-spin text-emerald-600' : ''}`} />
+                  <span>Rotor Position: Slot {currentSlot}</span>
+                </span>
+                <span className="text-emerald-700 dark:text-emerald-400 font-bold">
+                  Angle: {(-discAngle) % 360}°
+                </span>
               </div>
 
               {/* Dispenser Disc Mechanism Wrapper */}
-              <div className="relative w-64 h-64 flex items-center justify-center select-none my-2">
-                {/* Fixed Outer Ring & Dispensing Chute Pointer at Top */}
-                <div className="absolute top-0 w-8 h-8 -mt-2 bg-amber-500 text-slate-950 rounded-full flex items-center justify-center text-[10px] font-black z-20 shadow-md border-2 border-white">
-                  ▼
+              <div className="relative w-72 h-72 flex items-center justify-center select-none my-2">
+                
+                {/* Visible Dispensing & Loading Window Callout Frame (Fixed at 0° to 45°) */}
+                <div 
+                  className="absolute z-20 pointer-events-none rounded-xl border-2 border-dashed border-amber-500 bg-amber-500/15 flex items-center justify-center shadow-lg"
+                  style={{
+                    width: '95px',
+                    height: '80px',
+                    top: '28px',
+                    right: '20px',
+                    transform: 'rotate(22.5deg)',
+                  }}
+                >
+                  <span className="text-[9px] font-black uppercase tracking-wider text-amber-500 bg-slate-950/90 px-1 py-0.5 rounded shadow">
+                    0° - 45° CHUTE
+                  </span>
                 </div>
 
-                {/* Rotating Turntable SVG */}
+                {/* Rotating Turntable SVG with 8 Sectors of 45 Degrees */}
                 <svg
-                  width="250"
-                  height="250"
-                  viewBox="0 0 250 250"
-                  className="transition-transform duration-1000 ease-out drop-shadow-xl cursor-grab active:cursor-grabbing"
+                  width="270"
+                  height="270"
+                  viewBox="0 0 270 270"
+                  className="transition-transform duration-1000 ease-out drop-shadow-2xl cursor-grab active:cursor-grabbing"
                   style={{ transform: `rotate(${discAngle}deg)` }}
                 >
-                  {/* Outer acrylic chassis disc */}
-                  <circle cx="125" cy="125" r="120" fill="#1e293b" stroke="#475569" strokeWidth="4" />
-                  <circle cx="125" cy="125" r="114" fill="#0f172a" />
+                  {/* Outer Disc Rim */}
+                  <circle cx="135" cy="135" r="130" fill="#1e293b" stroke="#475569" strokeWidth="4" />
+                  <circle cx="135" cy="135" r="122" fill="#0f172a" />
 
-                  {/* Radial Divider Spokes */}
+                  {/* 8 Sectors (Each 45 degrees, Slot 1 = 0° to 45°) */}
                   {Array.from({ length: 8 }).map((_, i) => {
-                    const angle = (i * 45 * Math.PI) / 180;
-                    const x2 = 125 + 114 * Math.cos(angle);
-                    const y2 = 125 + 114 * Math.sin(angle);
-                    return (
-                      <line
-                        key={i}
-                        x1="125"
-                        y1="125"
-                        x2={x2}
-                        y2={y2}
-                        stroke="#334155"
-                        strokeWidth="2"
-                        strokeDasharray="3 3"
-                      />
-                    );
-                  })}
+                    const slotNum = i + 1;
+                    const startDeg = i * 45;
+                    const endDeg = (i + 1) * 45;
+                    const startRad = (startDeg * Math.PI) / 180;
+                    const endRad = (endDeg * Math.PI) / 180;
+                    const r = 120;
 
-                  {/* 8 Chamber Compartments */}
-                  {displaySlots.slice(0, 8).map((slot, i) => {
-                    // Position each slot in a circle (offset by 90deg so slot 1 is at top)
-                    const angle = ((i * 45 - 90) * Math.PI) / 180;
-                    const cx = 125 + 78 * Math.cos(angle);
-                    const cy = 125 + 78 * Math.sin(angle);
-                    const isLoaded = slot.status === 'loaded' || (slot.pills_remaining ?? 0) > 0;
-                    const medColor = slot.medicine?.color ?? '#14b8a6';
+                    const x1 = 135 + r * Math.cos(startRad);
+                    const y1 = 135 + r * Math.sin(startRad);
+                    const x2 = 135 + r * Math.cos(endRad);
+                    const y2 = 135 + r * Math.sin(endRad);
 
+                    const midDeg = startDeg + 22.5;
+                    const midRad = (midDeg * Math.PI) / 180;
+                    const labelR = 86;
+                    const lx = 135 + labelR * Math.cos(midRad);
+                    const ly = 135 + labelR * Math.sin(midRad);
+
+                    const slotObj = displaySlots.find((s) => s.slot_number === slotNum);
+                    const isLoaded = slotObj && (slotObj.status === 'loaded' || (slotObj.pills_remaining ?? 0) > 0);
+                    const medColor = slotObj?.medicine?.color ?? '#14b8a6';
+
+                    // SVG Wedge Path: M 135 135 L x1 y1 A r r 0 0 1 x2 y2 Z
                     return (
-                      <g key={slot.slot_number} className="transition-all">
-                        {/* Compartment Cup */}
-                        <circle
-                          cx={cx}
-                          cy={cy}
-                          r="24"
-                          fill={isLoaded ? '#1e293b' : '#090d16'}
-                          stroke={currentSlot === slot.slot_number ? '#38bdf8' : '#334155'}
-                          strokeWidth={currentSlot === slot.slot_number ? '3' : '1.5'}
+                      <g key={slotNum} className="transition-all cursor-pointer" onClick={() => rotateToSlot(slotNum)}>
+                        {/* Wedge slice */}
+                        <path
+                          d={`M 135 135 L ${x1} ${y1} A ${r} ${r} 0 0 1 ${x2} ${y2} Z`}
+                          fill={i % 2 === 0 ? '#1e293b' : '#0f172a'}
+                          stroke={currentSlot === slotNum ? '#38bdf8' : '#334155'}
+                          strokeWidth={currentSlot === slotNum ? 2.5 : 1}
+                          className="hover:opacity-80 transition-opacity"
                         />
 
-                        {/* Pills Visual Representation inside Cup */}
+                        {/* Compartment Cup Circle */}
+                        <circle
+                          cx={lx}
+                          cy={ly}
+                          r="18"
+                          fill={isLoaded ? '#0b1324' : '#1e293b'}
+                          stroke={currentSlot === slotNum ? '#38bdf8' : '#475569'}
+                          strokeWidth="1.5"
+                        />
+
+                        {/* Pill glyph */}
                         {isLoaded && (
-                          <g transform={`translate(${cx - 8}, ${cy - 8})`}>
-                            <rect x="0" y="2" width="16" height="7" rx="3.5" fill={medColor} />
-                            <circle cx="4" cy="12" r="3" fill="#cbd5e1" opacity="0.8" />
-                            <circle cx="12" cy="12" r="3" fill={medColor} opacity="0.9" />
-                          </g>
+                          <rect
+                            x={lx - 8}
+                            y={ly - 4}
+                            width="16"
+                            height="8"
+                            rx="4"
+                            fill={medColor}
+                            stroke="#fff"
+                            strokeWidth="0.8"
+                          />
                         )}
 
                         {/* Slot Number Label */}
                         <text
-                          x={cx}
-                          y={isLoaded ? cy - 10 : cy + 4}
+                          x={lx}
+                          y={isLoaded ? ly - 8 : ly + 4}
                           textAnchor="middle"
                           fill="#f8fafc"
-                          fontSize="10"
+                          fontSize="9"
                           fontWeight="bold"
                           fontFamily="monospace"
                         >
-                          S{slot.slot_number}
+                          S{slotNum}
                         </text>
 
-                        {/* Pills count badge */}
+                        {/* Pill count */}
                         {isLoaded && (
                           <text
-                            x={cx}
-                            y={cy + 12}
+                            x={lx}
+                            y={ly + 11}
                             textAnchor="middle"
                             fill="#94a3b8"
                             fontSize="8"
                             fontFamily="monospace"
                           >
-                            {slot.pills_remaining}p
+                            {slotObj?.pills_remaining}p
                           </text>
                         )}
                       </g>
                     );
                   })}
 
-                  {/* Center Stepper Hub */}
-                  <circle cx="125" cy="125" r="34" fill="#334155" stroke="#64748b" strokeWidth="3" />
-                  <circle cx="125" cy="125" r="16" fill="#0f172a" />
-                  <circle cx="125" cy="125" r="6" fill="#94a3b8" />
+                  {/* Center Motor Hub */}
+                  <circle cx="135" cy="135" r="32" fill="#334155" stroke="#64748b" strokeWidth="2" />
+                  <circle cx="135" cy="135" r="14" fill="#0f172a" />
+                  <circle cx="135" cy="135" r="5" fill="#94a3b8" />
 
-                  {/* Hall Effect Magnet at Slot 1 */}
-                  <circle cx="125" cy="40" r="4" fill="#ef4444" stroke="#fca5a5" strokeWidth="1" />
+                  {/* Hall Effect Magnet at Slot 1 (Sector 0°–45°, positioned at mid-angle 22.5°) */}
+                  <circle cx={135 + 110 * Math.cos((22.5 * Math.PI) / 180)} cy={135 + 110 * Math.sin((22.5 * Math.PI) / 180)} r="4" fill="#ef4444" stroke="#fca5a5" strokeWidth="1" />
                 </svg>
 
-                {/* Hall Effect Sensor on Chassis (aligned with Slot 1 top) */}
+                {/* Hall Sensor A3144 on base plate */}
                 <div
-                  className={`absolute top-2 w-3 h-3 rounded-sm border ${
+                  className={`absolute w-3.5 h-3.5 rounded-sm border ${
                     currentSlot === 1
                       ? 'bg-emerald-500 border-emerald-300 shadow-[0_0_8px_#10b981]'
                       : 'bg-slate-700 border-slate-600'
                   }`}
-                  title="Hall Sensor A3144 (GPIO 33): Homing Sensor"
+                  style={{
+                    top: '38px',
+                    right: '42px',
+                  }}
+                  title="Hall Sensor A3144 (GPIO 33): Magnet Homing Reference"
                 />
               </div>
 
-              {/* Slot quick-stepper buttons */}
-              <div className="flex items-center gap-1 flex-wrap justify-center mt-3">
-                {Array.from({ length: 8 }, (_, i) => i + 1).map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    onClick={() => rotateToSlot(s)}
-                    className={`sm !py-1 !px-2.5 text-xs font-mono font-bold ${
-                      currentSlot === s ? '!bg-amber-600 !text-white' : ''
-                    }`}
-                  >
-                    S{s}
-                  </button>
-                ))}
+              {/* Quick Slot Buttons (1 to 8) */}
+              <div className="w-full mt-2">
+                <div className="text-[11px] font-mono font-bold text-center text-muted-foreground mb-1.5">
+                  CLICK TO ROTATE SLOT TO DISPENSING WINDOW:
+                </div>
+                <div className="grid grid-cols-4 sm:grid-cols-8 gap-1.5">
+                  {Array.from({ length: 8 }, (_, i) => i + 1).map((s) => {
+                    const slotInfo = displaySlots.find((sl) => sl.slot_number === s);
+                    const isLoaded = slotInfo && slotInfo.status === 'loaded';
+                    return (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => rotateToSlot(s)}
+                        className={`!min-h-[34px] !py-1 !px-1.5 text-[11px] font-mono font-bold flex flex-col items-center justify-center transition-all ${
+                          currentSlot === s
+                            ? '!bg-amber-600 !text-white !border-amber-700 ring-2 ring-amber-400'
+                            : isLoaded
+                            ? '!bg-slate-200 dark:!bg-slate-800 !text-slate-800 dark:!text-slate-200'
+                            : '!bg-slate-100 dark:!bg-slate-900 opacity-60'
+                        }`}
+                      >
+                        <span>S{s}</span>
+                        <span className="text-[9px] font-normal opacity-80 truncate max-w-[48px]">
+                          {isLoaded ? slotInfo?.medicine?.name : 'Empty'}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
 
             {/* 2. ESP32 Controller Board & Peripheral Modules (6 cols) */}
             <div className="md:col-span-6 space-y-4">
               
-              {/* Virtual OLED Frame */}
+              {/* Virtual OLED Mirror */}
               <div className="p-3 bg-slate-900 rounded-2xl border-2 border-slate-700 flex flex-col items-center justify-center shadow-lg">
                 <div className="w-full flex items-center justify-between text-[11px] font-mono text-slate-400 mb-1 px-1">
-                  <span>SSD1306 0.96" OLED (I2C 0x3C)</span>
+                  <span>SH1106 1.3" OLED (I2C 0x3C)</span>
                   <span className="text-emerald-400">D21:SDA / D22:SCL</span>
                 </div>
                 <OledPreview
@@ -376,14 +444,14 @@ export function VirtualHardwareStage() {
                 />
               </div>
 
-              {/* ESP32 Hardware Peripheral Board Box */}
+              {/* Hardware Actions & Status */}
               <div className="p-3.5 bg-slate-900/90 rounded-2xl border border-slate-800 space-y-3 font-mono text-xs">
                 <div className="flex items-center justify-between border-b border-slate-800 pb-2">
                   <span className="font-bold text-slate-200 uppercase flex items-center gap-1.5">
                     <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                    ESP32 DevKit V1 Telemetry
+                    ESP32 Physical I/O Controls
                   </span>
-                  <span className="text-[11px] text-muted-foreground">Firmware: v1.0.0-esp32</span>
+                  <span className="text-[11px] text-muted-foreground">{isOnline ? 'Online (10.51.16.35)' : 'Simulated'}</span>
                 </div>
 
                 {/* Live Indicator Lights Row */}
@@ -398,7 +466,7 @@ export function VirtualHardwareStage() {
                       }`}
                     />
                     <span className="font-bold">LED (D15)</span>
-                    <span className="text-[10px] text-muted-foreground">{hasDueDose ? 'ALERT' : 'OFF'}</span>
+                    <span className="text-[10px] text-muted-foreground">{hasDueDose ? 'ALERT' : 'PULSE'}</span>
                   </div>
 
                   {/* Active Buzzer on GPIO 13 */}
@@ -414,23 +482,23 @@ export function VirtualHardwareStage() {
                     <span className="text-[10px] text-muted-foreground">{hasDueDose ? 'BEEPING' : 'IDLE'}</span>
                   </div>
 
-                  {/* IR Sensor FC-51 on GPIO 32 */}
+                  {/* Hall Effect Sensor on GPIO 33 */}
                   <div className="p-2 rounded-lg bg-slate-800/80 border border-slate-700 flex flex-col items-center gap-1">
                     <span
                       className={`w-3.5 h-3.5 rounded-full transition-all ${
-                        isIrTriggered
+                        currentSlot === 1
                           ? 'bg-emerald-400 shadow-[0_0_10px_#34d399]'
                           : 'bg-slate-700'
                       }`}
                     />
-                    <span className="font-bold">IR Beam (D32)</span>
-                    <span className="text-[10px] text-muted-foreground">{isIrTriggered ? 'TRIPPED' : 'CLEAR'}</span>
+                    <span className="font-bold">Hall Sensor (D33)</span>
+                    <span className="text-[10px] text-muted-foreground">{currentSlot === 1 ? 'MAGNET OK' : 'SLOT ' + currentSlot}</span>
                   </div>
                 </div>
 
-                {/* Tactile Hardware Actions */}
+                {/* Tactile Push Button and Quick Dispense */}
                 <div className="grid grid-cols-2 gap-2 pt-1">
-                  {/* Clickable Push Button on GPIO 4 */}
+                  {/* Physical Button (D4) */}
                   <button
                     type="button"
                     onClick={handlePhysicalButtonPress}
@@ -441,17 +509,17 @@ export function VirtualHardwareStage() {
                     }`}
                   >
                     <Fingerprint className="w-4 h-4 text-emerald-400" />
-                    <span>Press Button (D4)</span>
+                    <span>Push Button (D4)</span>
                   </button>
 
-                  {/* Pill Drop Simulator */}
+                  {/* Home Disc Button */}
                   <button
                     type="button"
-                    onClick={handleDropPill}
+                    onClick={handleHomeDisc}
                     className="p-2.5 rounded-xl border bg-slate-800 text-slate-100 hover:bg-slate-700 border-slate-600 shadow-sm flex items-center justify-center gap-2 font-bold text-xs"
                   >
-                    <Radio className="w-4 h-4 text-amber-400" />
-                    <span>Drop Pill (IR/Servo)</span>
+                    <Home className="w-4 h-4 text-amber-400" />
+                    <span>Home Disc (Slot 1)</span>
                   </button>
                 </div>
               </div>
@@ -459,10 +527,10 @@ export function VirtualHardwareStage() {
             </div>
           </div>
 
-          {/* Bottom Action Ribbon: Fast Simulation Triggers */}
+          {/* Bottom Action Ribbon: Fast Simulation & Diagnostic Triggers */}
           <div className="flex items-center gap-2 flex-wrap pt-2 border-t border-slate-200 dark:border-slate-800">
             <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground mr-1">
-              Test Triggers:
+              Actions:
             </span>
 
             <button
@@ -480,7 +548,7 @@ export function VirtualHardwareStage() {
               onClick={() => rotateToSlot((currentSlot % 8) + 1)}
             >
               <RotateCw className="w-3.5 h-3.5" />
-              Step Motor to Next Slot
+              Step to Next Slot (45°)
             </button>
 
             <button
@@ -496,7 +564,7 @@ export function VirtualHardwareStage() {
               }}
             >
               <Zap className="w-3.5 h-3.5 text-emerald-500" />
-              Flash OLED Test Pattern
+              Test OLED Display
             </button>
           </div>
         </div>

@@ -132,7 +132,38 @@ export function Slots() {
         refreshMeds();
       }
 
-      // Update slot
+      // Update local storage immediately for instantaneous UI update
+      try {
+        const raw = localStorage.getItem('sage_local_slots');
+        if (raw) {
+          const localSlots: Slot[] = JSON.parse(raw);
+          const foundMed = (medicines ?? []).find((m) => m.id === finalMedId) || {
+            id: finalMedId,
+            name: medName.trim(),
+            dose: medDose.trim() || null,
+            notes: medNotes.trim() || null,
+            color: medColor,
+            created_at: new Date().toISOString(),
+          };
+          const updated = localSlots.map((s) =>
+            s.slot_number === selectedSlotNum
+              ? {
+                  ...s,
+                  medicine_id: finalMedId,
+                  pills_remaining: pillCount,
+                  status: 'loaded' as const,
+                  medicine: foundMed,
+                  updated_at: new Date().toISOString(),
+                }
+              : s
+          );
+          localStorage.setItem('sage_local_slots', JSON.stringify(updated));
+        }
+      } catch (err) {
+        console.warn('Local slot update error:', err);
+      }
+
+      // Update slot in Supabase
       const { error: slotErr } = await supabase
         .from('slots')
         .update({
@@ -160,6 +191,20 @@ export function Slots() {
     if (!activeSlot || refillAmount <= 0) return;
     try {
       const newTotal = (activeSlot.pills_remaining ?? 0) + refillAmount;
+
+      try {
+        const raw = localStorage.getItem('sage_local_slots');
+        if (raw) {
+          const localSlots: Slot[] = JSON.parse(raw);
+          const updated = localSlots.map((s) =>
+            s.slot_number === activeSlot.slot_number
+              ? { ...s, pills_remaining: newTotal, updated_at: new Date().toISOString() }
+              : s
+          );
+          localStorage.setItem('sage_local_slots', JSON.stringify(updated));
+        }
+      } catch {}
+
       const { error } = await supabase
         .from('slots')
         .update({ pills_remaining: newTotal, updated_at: new Date().toISOString() })
@@ -180,6 +225,26 @@ export function Slots() {
       return;
     }
     try {
+      try {
+        const raw = localStorage.getItem('sage_local_slots');
+        if (raw) {
+          const localSlots: Slot[] = JSON.parse(raw);
+          const updated = localSlots.map((s) =>
+            s.slot_number === slotNum
+              ? {
+                  ...s,
+                  medicine_id: null,
+                  medicine: null,
+                  pills_remaining: 0,
+                  status: 'empty' as const,
+                  updated_at: new Date().toISOString(),
+                }
+              : s
+          );
+          localStorage.setItem('sage_local_slots', JSON.stringify(updated));
+        }
+      } catch {}
+
       const { error } = await supabase
         .from('slots')
         .update({

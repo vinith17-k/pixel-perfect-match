@@ -81,7 +81,7 @@ String activeEventId = "";
 
 // Stepper Position Tracking (Slots 1 to 8)
 int currentMotorSlot = 1;
-const int STEPS_PER_SLOT = 256; // 2048 steps / 8 slots = 256 steps per 45 deg
+const int STEPS_PER_SLOT = 512; // 4096 half-steps / 8 slots = 512 steps per 45 deg
 
 // Next dose preview
 String nextDosePreview = "No doses today";
@@ -96,29 +96,35 @@ const unsigned long COMMAND_INTERVAL_MS  = 3000;   // 3 seconds
 const unsigned long HEARTBEAT_INTERVAL_MS = 10000;  // 10 seconds
 const unsigned long SCHEDULE_INTERVAL_MS  = 30000;  // 30 seconds
 
-// ─── STEPPER MOTOR SEQUENCE ───────────────────────────────────────────────────
-const int STEP_SEQ[4][4] = {
+// ─── STEPPER MOTOR SEQUENCE (28BYJ-48 Half-Stepping) ──────────────────────────
+// 28BYJ-48 coil pairs: Coil 1 (IN1, IN3), Coil 2 (IN2, IN4)
+// Sequential coil firing order MUST be: IN1 -> IN3 -> IN2 -> IN4
+const int STEP_PINS[4] = { PIN_STEPPER_IN1, PIN_STEPPER_IN3, PIN_STEPPER_IN2, PIN_STEPPER_IN4 };
+
+const int HALF_STEP_SEQ[8][4] = {
+  {1, 0, 0, 0},
   {1, 1, 0, 0},
+  {0, 1, 0, 0},
   {0, 1, 1, 0},
+  {0, 0, 1, 0},
   {0, 0, 1, 1},
+  {0, 0, 0, 1},
   {1, 0, 0, 1}
 };
 
 void stepMotor(int steps, int dir) {
-  int seqStep = 0;
+  static int currentSeq = 0;
   for (int i = 0; i < steps; i++) {
-    seqStep = (dir > 0) ? ((seqStep + 1) % 4) : ((seqStep + 3) % 4);
-    digitalWrite(PIN_STEPPER_IN1, STEP_SEQ[seqStep][0]);
-    digitalWrite(PIN_STEPPER_IN2, STEP_SEQ[seqStep][1]);
-    digitalWrite(PIN_STEPPER_IN3, STEP_SEQ[seqStep][2]);
-    digitalWrite(PIN_STEPPER_IN4, STEP_SEQ[seqStep][3]);
-    delay(4);
+    currentSeq = (dir > 0) ? ((currentSeq + 1) % 8) : ((currentSeq + 7) % 8);
+    for (int p = 0; p < 4; p++) {
+      digitalWrite(STEP_PINS[p], HALF_STEP_SEQ[currentSeq][p]);
+    }
+    delay(2); // 2ms per step = optimal torque for 28BYJ-48
   }
   // De-energize coils to prevent heat build-up
-  digitalWrite(PIN_STEPPER_IN1, LOW);
-  digitalWrite(PIN_STEPPER_IN2, LOW);
-  digitalWrite(PIN_STEPPER_IN3, LOW);
-  digitalWrite(PIN_STEPPER_IN4, LOW);
+  for (int p = 0; p < 4; p++) {
+    digitalWrite(STEP_PINS[p], LOW);
+  }
 }
 
 void rotateToSlot(int targetSlot) {

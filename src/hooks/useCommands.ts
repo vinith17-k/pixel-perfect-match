@@ -4,9 +4,20 @@ import type { Command, CommandStatus } from '../types';
 
 const PAGE_SIZE = 20;
 
+const LS_COMMANDS = 'sage_local_commands';
+
+function getLocalCommands(): Command[] {
+  try {
+    const raw = localStorage.getItem(LS_COMMANDS);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
 export function useCommands() {
-  const [commands, setCommands] = useState<Command[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [commands, setCommands] = useState<Command[]>(getLocalCommands);
+  const [loading, setLoading] = useState(false);
 
   const fetchCommands = useCallback(async () => {
     try {
@@ -17,13 +28,19 @@ export function useCommands() {
         .limit(PAGE_SIZE);
 
       if (error) throw error;
-      setCommands((data ?? []) as Command[]);
+      if (data && data.length > 0) {
+        setCommands(data as Command[]);
+        localStorage.setItem(LS_COMMANDS, JSON.stringify(data));
+      } else {
+        setCommands(getLocalCommands());
+      }
     } catch {
-      // Keep stale data on error
+      setCommands(getLocalCommands());
     } finally {
       setLoading(false);
     }
   }, []);
+
 
   useEffect(() => {
     fetchCommands();

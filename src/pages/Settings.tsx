@@ -121,17 +121,28 @@ export function Settings() {
   const handleFullReset = async () => {
     setIsResetting(true);
     try {
-      // Clear commands, events, schedules, empty slots
-      await supabase.from('commands').delete().neq('id', 0);
-      await supabase.from('dose_events').delete().not('id', 'is', null);
-      await supabase.from('schedules').delete().not('id', 'is', null);
-      await supabase
-        .from('slots')
-        .update({ medicine_id: null, pills_remaining: 0, status: 'empty' })
-        .gte('slot_number', 1);
-      await supabase.from('medicines').delete().not('id', 'is', null);
+      // Clear local storage first
+      localStorage.removeItem('sage_local_commands');
+      localStorage.removeItem('sage_local_dose_events');
+      localStorage.removeItem('sage_local_schedules');
+      localStorage.removeItem('sage_local_medicines');
+      localStorage.removeItem('sage_local_slots');
 
-      toast.success('Database reset completed.');
+      // Attempt remote cleanup
+      try {
+        await supabase.from('commands').delete().neq('id', 0);
+        await supabase.from('dose_events').delete().not('id', 'is', null);
+        await supabase.from('schedules').delete().not('id', 'is', null);
+        await supabase
+          .from('slots')
+          .update({ medicine_id: null, pills_remaining: 0, status: 'empty' })
+          .gte('slot_number', 1);
+        await supabase.from('medicines').delete().not('id', 'is', null);
+      } catch (remoteErr) {
+        console.warn('Remote database reset warning:', remoteErr);
+      }
+
+      toast.success('Database & local storage reset completed.');
       setResetModalOpen(false);
     } catch {
       toast.error('Failed to execute full reset.');

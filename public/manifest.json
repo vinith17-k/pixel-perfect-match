@@ -1,0 +1,17 @@
+{
+  "name": "Sage Bot 2.0 — Smart Medicine Dispenser",
+  "short_name": "Sage Bot",
+  "description": "Smart IoT medicine reminder and automatic dispenser dashboard with real-time sync and virtual hardware simulator.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#14b8a6",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

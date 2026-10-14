@@ -671,8 +671,8 @@ void sendHeartbeat() {
   parts["oled"]    = true;
   parts["stepper"] = true;
   parts["hall"]    = true;
-  parts["ir"]      = false; // user has not connected IR yet
-  parts["servo"]   = true;
+  parts["ir"]      = false;
+  parts["servo"]   = false;
   parts["button"]  = true;
   parts["led"]     = true;
   parts["buzzer"]  = true;

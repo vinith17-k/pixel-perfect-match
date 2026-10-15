@@ -62,8 +62,8 @@ export interface Command {
   result: Record<string, unknown> | null;
   created_at: string;
   done_at: string | null;
-  claimed_at: string | null;
-  claimed_by: string | null;
+  claimed_at?: string | null;
+  claimed_by?: string | null;
 }
 
 export interface HardwareConfig {

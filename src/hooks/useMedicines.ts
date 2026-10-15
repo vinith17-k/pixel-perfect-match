@@ -4,41 +4,14 @@ import type { Medicine } from '../types';
 
 const LS_MEDS = 'sage_local_medicines';
 
-const DEFAULT_MEDICINES: Medicine[] = [
-  {
-    id: 'med-1',
-    name: 'Metformin',
-    dose: '500mg',
-    notes: 'Take with meal',
-    color: '#14b8a6',
-    created_at: new Date().toISOString(),
-  },
-  {
-    id: 'med-2',
-    name: 'Vitamin D3',
-    dose: '1000IU',
-    notes: 'Morning boost',
-    color: '#f59e0b',
-    created_at: new Date().toISOString(),
-  },
-  {
-    id: 'med-3',
-    name: 'Amlodipine',
-    dose: '5mg',
-    notes: 'Blood pressure',
-    color: '#6366f1',
-    created_at: new Date().toISOString(),
-  },
-];
-
 function getLocalMedicines(): Medicine[] {
   try {
     const raw = localStorage.getItem(LS_MEDS);
-    if (!raw) return DEFAULT_MEDICINES;
+    if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_MEDICINES;
+    return Array.isArray(parsed) ? parsed : [];
   } catch {
-    return DEFAULT_MEDICINES;
+    return [];
   }
 }
 
@@ -54,7 +27,7 @@ export function useMedicines() {
         .order('name', { ascending: true });
 
       if (error) throw error;
-      if (data && data.length > 0) {
+      if (data) {
         setMedicines(data as Medicine[]);
         localStorage.setItem(LS_MEDS, JSON.stringify(data));
       } else {

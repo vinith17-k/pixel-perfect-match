@@ -1,21 +1,15 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Monitor,
   RotateCw,
-  Magnet,
-  Eye,
-  Settings2,
   Circle,
   Lightbulb,
   Volume2,
   CheckCircle2,
   XCircle,
   Minus,
-  ChevronDown,
-  ChevronUp,
   Copy,
   Check,
-  Home,
   Loader2,
   AlertTriangle,
   Info,
@@ -28,7 +22,7 @@ import { useDeviceStatus } from '../hooks/useDeviceStatus';
 import { useCommands } from '../hooks/useCommands';
 import { sendCommand } from '../lib/commands';
 import { PART_META } from '../lib/hardware';
-import { Card, CardInner } from '../components/ui/Card';
+import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
 import { cn } from '../lib/cn';
@@ -39,9 +33,6 @@ import type { PartKey, HardwareConfig, Command } from '../types';
 const ICON_MAP: Record<string, React.ElementType> = {
   Monitor,
   RotateCw,
-  Magnet,
-  Eye,
-  Settings2,
   Circle,
   Lightbulb,
   Volume2,
@@ -99,18 +90,10 @@ function Switch({ checked, onChange, disabled, id }: SwitchProps) {
 
 // ─── Degradation notes ────────────────────────────────────────────────────────
 
-function degradationNote(key: PartKey, config: HardwareConfig): string | null {
+function degradationNote(key: PartKey, _config: HardwareConfig): string | null {
   switch (key) {
     case 'has_stepper':
       return 'Rotate commands will be simulated. OLED shows slot to use.';
-    case 'has_hall':
-      return config.has_stepper
-        ? 'Homing skipped. Device assumes slot 1 on boot.'
-        : null;
-    case 'has_ir':
-      return !config.has_servo ? 'No shutter. Alarm goes to waiting for taken.' : null;
-    case 'has_servo':
-      return !config.has_ir ? 'No shutter. Alarm goes to waiting for taken.' : null;
     case 'has_button':
       return 'User taps Mark as taken on website.';
     case 'has_led':
@@ -182,9 +165,6 @@ function PartCard({ partKey, config, commands, onToggle, toggling }: PartCardPro
     }
   }, [meta.testCommand]);
 
-  // Hall sensor warning: only shown when stepper is also ON
-  const showHallWarning = partKey === 'has_hall' && isEnabled && config.has_stepper;
-
   return (
     <div
       className={cn(
@@ -233,15 +213,6 @@ function PartCard({ partKey, config, commands, onToggle, toggling }: PartCardPro
       {/* Expanded body when enabled */}
       {isEnabled && (
         <div className="border-t border-slate-100 px-4 pb-4 pt-3 dark:border-slate-700/60">
-          {/* Hall sensor warning chip */}
-          {showHallWarning && (
-            <div className="mb-3 flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2 dark:bg-amber-900/20">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
-              <p className="text-xs text-amber-700 dark:text-amber-300">
-                Homing off — position not verified until Hall sensor triggers.
-              </p>
-            </div>
-          )}
 
           {/* Pin table */}
           <div className="mb-3 overflow-hidden rounded-lg bg-slate-900 dark:bg-slate-950">
@@ -372,20 +343,6 @@ function getSuggestions(config: HardwareConfig): Suggestion[] {
     });
   }
 
-  if (config.has_oled && config.has_stepper && !config.has_hall) {
-    suggestions.push({
-      icon: Magnet,
-      text: 'Add Hall sensor for accurate disc homing.',
-    });
-  }
-
-  if (config.has_oled && config.has_stepper && config.has_hall && (!config.has_ir || !config.has_servo)) {
-    suggestions.push({
-      icon: Eye,
-      text: 'Add IR sensor + Servo for automatic shutter detection.',
-    });
-  }
-
   if (config.has_stepper && !config.has_button) {
     suggestions.push({
       icon: Circle,
@@ -410,16 +367,13 @@ function getSuggestions(config: HardwareConfig): Suggestion[] {
   if (
     config.has_oled &&
     config.has_stepper &&
-    config.has_hall &&
-    config.has_ir &&
-    config.has_servo &&
     config.has_button &&
     config.has_led &&
     config.has_buzzer
   ) {
     suggestions.push({
       icon: CheckCircle2,
-      text: 'All hardware connected! Your Sage Bot is fully configured.',
+      text: 'All currently supported hardware components are enabled.',
     });
   }
 
@@ -429,24 +383,25 @@ function getSuggestions(config: HardwareConfig): Suggestion[] {
 // ─── Developer Section ────────────────────────────────────────────────────────
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
-const ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+const SUPABASE_KEY = (
+  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+  import.meta.env.VITE_SUPABASE_ANON_KEY
+) as string;
 
 const ESP32_ENDPOINTS = [
-  `GET  /rest/v1/commands?status=eq.pending&order=created_at.asc`,
-  `PATCH /rest/v1/commands?id=eq.{id}`,
+  `POST /rest/v1/rpc/claim_next_command`,
+  `POST /rest/v1/rpc/complete_device_command`,
   `PATCH /rest/v1/device_status?id=eq.1`,
-  `GET  /rest/v1/hardware_config?id=eq.1`,
-  `GET  /rest/v1/schedules?enabled=eq.true (with joins)`,
-  `POST /rest/v1/dose_events`,
-  `PATCH /rest/v1/dose_events?id=eq.{id}`,
+  `GET /rest/v1/schedules?enabled=eq.true`,
+  `POST /rest/v1/rpc/mark_dose_taken`,
 ];
 
 function DeveloperSection() {
   const [keyCopied, setKeyCopied] = useState(false);
   const [urlCopied, setUrlCopied] = useState(false);
 
-  const maskedKey = ANON_KEY
-    ? `${ANON_KEY.slice(0, 10)}…`
+  const maskedKey = SUPABASE_KEY
+    ? `${SUPABASE_KEY.slice(0, 10)}…`
     : '(not set)';
 
   const copyToClipboard = async (text: string, setter: (v: boolean) => void) => {
@@ -486,10 +441,10 @@ function DeveloperSection() {
           </div>
         </div>
 
-        {/* Anon Key */}
+        {/* Publishable key */}
         <div>
           <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-            Anon Key (masked)
+            Publishable key (masked)
           </p>
           <div className="flex items-center gap-2 rounded-lg bg-slate-100 px-3 py-2 dark:bg-slate-800">
             <code className="flex-1 font-mono text-xs text-slate-700 dark:text-slate-200">
@@ -497,8 +452,8 @@ function DeveloperSection() {
             </code>
             <button
               type="button"
-              title="Copy full anon key"
-              onClick={() => copyToClipboard(ANON_KEY, setKeyCopied)}
+              title="Copy full publishable key"
+              onClick={() => copyToClipboard(SUPABASE_KEY, setKeyCopied)}
               className="shrink-0 rounded-md p-1 text-slate-500 transition hover:bg-slate-200 dark:hover:bg-slate-700"
             >
               {keyCopied ? (
@@ -561,25 +516,6 @@ export function Hardware() {
   const { commands } = useCommands();
 
   const [toggling, setToggling] = useState<PartKey | null>(null);
-  const [homingState, setHomingState] = useState<
-    'idle' | 'sending' | 'waiting' | 'done' | 'error'
-  >('idle');
-  const [homeCommand, setHomeCommand] = useState<Command | null>(null);
-
-  // Watch for home command completion
-  useMemo(() => {
-    if (homingState !== 'waiting' || !homeCommand) return;
-    const cmd = commands.find((c) => c.id === homeCommand.id);
-    if (cmd && (cmd.status === 'done' || cmd.status === 'failed' || cmd.status === 'simulated')) {
-      setHomeCommand(cmd);
-      setHomingState('done');
-      if (cmd.status === 'done' || cmd.status === 'simulated') {
-        toast.success('Disc homed successfully.');
-      } else {
-        toast.error('Homing failed. Check device logs.');
-      }
-    }
-  }, [commands, homingState, homeCommand]);
 
   const handleToggle = useCallback(
     async (key: PartKey, value: boolean) => {
@@ -599,23 +535,11 @@ export function Hardware() {
     [config, update],
   );
 
-  const handleHome = useCallback(async () => {
-    try {
-      setHomingState('sending');
-      const cmd = await sendCommand('home');
-      setHomeCommand(cmd);
-      setHomingState('waiting');
-    } catch (err) {
-      setHomingState('error');
-      toast.error(err instanceof Error ? err.message : 'Failed to send home command');
-    }
-  }, []);
-
   // Progress
   const enabledCount = config
     ? PART_META.filter((p) => config[p.key]).length
     : 0;
-  const totalParts = PART_META.length; // 8
+  const totalParts = PART_META.length;
 
   const suggestions = config ? getSuggestions(config) : [];
 
@@ -788,62 +712,12 @@ export function Hardware() {
         )}
       </Card>
 
-      {/* ── Section 4: Home Disc Button ── */}
+      {/* ── Section 4: Positioning limitation ── */}
       {config.has_stepper && (
-        <Card title="Disc Homing">
-          <div className="space-y-4">
-            <p className="text-sm text-slate-600 dark:text-slate-400">
-              Sends a <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs dark:bg-slate-800">home</code> command to rotate the disc until the Hall sensor triggers, returning to slot 1.
-            </p>
-
-            <Button
-              variant="secondary"
-              icon={
-                homingState === 'sending' || homingState === 'waiting' ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Home className="h-4 w-4" />
-                )
-              }
-              disabled={homingState === 'sending' || homingState === 'waiting'}
-              onClick={handleHome}
-            >
-              {homingState === 'waiting' ? 'Homing…' : 'Home Disc'}
-            </Button>
-
-            {homingState === 'done' && homeCommand && (
-              <div className="rounded-lg bg-slate-900 px-3 py-2 dark:bg-slate-950">
-                <p
-                  className={cn(
-                    'font-mono text-xs',
-                    resultColor(homeCommand.status),
-                  )}
-                >
-                  [{homeCommand.status.toUpperCase()}]{' '}
-                  {homeCommand.result
-                    ? JSON.stringify(homeCommand.result)
-                    : 'Command complete'}
-                </p>
-              </div>
-            )}
-
-            {homingState === 'error' && (
-              <div className="rounded-lg bg-red-900/30 px-3 py-2">
-                <p className="font-mono text-xs text-red-400">
-                  Failed to send home command. Check connection.
-                </p>
-              </div>
-            )}
-
-            {!config.has_hall && (
-              <div className="flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2 dark:bg-amber-900/20">
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
-                <p className="text-xs text-amber-700 dark:text-amber-300">
-                  Hall sensor is disabled. Homing will run by step count only — accuracy not guaranteed.
-                </p>
-              </div>
-            )}
-          </div>
+        <Card title="Carousel Positioning">
+          <p className="text-sm text-slate-600 dark:text-slate-400">
+            Position is estimated from the boot position. With no position sensor installed, the device cannot automatically re-home after a restart; align the carousel manually before relying on slot selection.
+          </p>
         </Card>
       )}
 

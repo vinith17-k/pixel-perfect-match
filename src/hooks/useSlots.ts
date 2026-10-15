@@ -4,70 +4,23 @@ import type { Slot } from '../types';
 
 const LS_SLOTS = 'sage_local_slots';
 
-const DEFAULT_SLOTS: Slot[] = [
-  {
-    slot_number: 1,
-    medicine_id: 'med-1',
-    pills_remaining: 18,
-    status: 'loaded',
-    updated_at: new Date().toISOString(),
-    medicine: {
-      id: 'med-1',
-      name: 'Metformin',
-      dose: '500mg',
-      notes: 'Take with meal',
-      color: '#14b8a6',
-      created_at: new Date().toISOString(),
-    },
-  },
-  {
-    slot_number: 2,
-    medicine_id: 'med-2',
-    pills_remaining: 24,
-    status: 'loaded',
-    updated_at: new Date().toISOString(),
-    medicine: {
-      id: 'med-2',
-      name: 'Vitamin D3',
-      dose: '1000IU',
-      notes: 'Morning boost',
-      color: '#f59e0b',
-      created_at: new Date().toISOString(),
-    },
-  },
-  {
-    slot_number: 3,
-    medicine_id: 'med-3',
-    pills_remaining: 12,
-    status: 'loaded',
-    updated_at: new Date().toISOString(),
-    medicine: {
-      id: 'med-3',
-      name: 'Amlodipine',
-      dose: '5mg',
-      notes: 'Blood pressure',
-      color: '#6366f1',
-      created_at: new Date().toISOString(),
-    },
-  },
-  ...Array.from({ length: 5 }, (_, i) => ({
-    slot_number: i + 4,
-    medicine_id: null,
-    pills_remaining: 0,
-    status: 'empty' as const,
-    updated_at: new Date().toISOString(),
-    medicine: null,
-  })),
-];
+const EMPTY_SLOTS: Slot[] = Array.from({ length: 8 }, (_, i) => ({
+  slot_number: i + 1,
+  medicine_id: null,
+  pills_remaining: 0,
+  status: 'empty',
+  updated_at: new Date(0).toISOString(),
+  medicine: null,
+}));
 
 function getLocalSlots(): Slot[] {
   try {
     const raw = localStorage.getItem(LS_SLOTS);
-    if (!raw) return DEFAULT_SLOTS;
+    if (!raw) return EMPTY_SLOTS;
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) && parsed.length >= 8 ? parsed : DEFAULT_SLOTS;
+    return Array.isArray(parsed) && parsed.length >= 8 ? parsed : EMPTY_SLOTS;
   } catch {
-    return DEFAULT_SLOTS;
+    return EMPTY_SLOTS;
   }
 }
 
@@ -128,4 +81,3 @@ export function useSlots() {
 
   return { slots, loading, refresh: fetchSlots };
 }
-

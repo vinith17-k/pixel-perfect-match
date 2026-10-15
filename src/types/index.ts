@@ -62,15 +62,14 @@ export interface Command {
   result: Record<string, unknown> | null;
   created_at: string;
   done_at: string | null;
+  claimed_at: string | null;
+  claimed_by: string | null;
 }
 
 export interface HardwareConfig {
   id: 1;
   has_oled: boolean;
   has_stepper: boolean;
-  has_hall: boolean;
-  has_ir: boolean;
-  has_servo: boolean;
   has_button: boolean;
   has_led: boolean;
   has_buzzer: boolean;
@@ -112,9 +111,6 @@ export type TabId = 'dashboard' | 'slots' | 'schedule' | 'history' | 'hardware' 
 export type PartKey = 
   | 'has_oled' 
   | 'has_stepper' 
-  | 'has_hall' 
-  | 'has_ir' 
-  | 'has_servo' 
   | 'has_button' 
   | 'has_led' 
   | 'has_buzzer';

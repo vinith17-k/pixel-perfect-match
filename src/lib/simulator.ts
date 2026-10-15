@@ -49,9 +49,6 @@ function buildPartsOk(config: HardwareConfig): Record<string, boolean> {
   return {
     oled:    config.has_oled,
     stepper: config.has_stepper,
-    hall:    config.has_hall,
-    ir:      config.has_ir,
-    servo:   config.has_servo,
     button:  config.has_button,
     led:     config.has_led,
     buzzer:  config.has_buzzer,
@@ -239,27 +236,40 @@ async function processPendingCommands(
   slots: Slot[],
 ): Promise<void> {
   try {
-    const { data: commands, error } = await supabase
-      .from('commands')
-      .select('*')
-      .in('status', ['pending', 'running'])
-      .order('created_at', { ascending: true })
-      .limit(10);
+    const { data: commands, error } = await supabase.rpc('claim_next_command');
 
     if (error) { warn('Command fetch error:', error.message); return; }
-    if (!commands?.length) return;
+    if (!Array.isArray(commands) || !commands.length) return;
 
     for (const cmd of commands) {
-      await processCommand(cmd, config, schedules, slots);
+      if (
+        cmd && typeof cmd === 'object' &&
+        'id' in cmd && typeof cmd.id === 'number' &&
+        'type' in cmd && typeof cmd.type === 'string' &&
+        'payload' in cmd && cmd.payload !== null && typeof cmd.payload === 'object'
+      ) {
+        await processCommand({
+          id: cmd.id,
+          type: cmd.type,
+          payload: cmd.payload as Record<string, unknown>,
+        }, config, schedules, slots);
+      } else {
+        warn('Ignoring malformed command returned by claim_next_command.');
+      }
     }
   } catch (err) {
     warn('Command processor exception:', err);
   }
 }
 
+interface SimulatorCommand {
+  id: number;
+  type: string;
+  payload: Record<string, unknown>;
+}
+
 async function processCommand(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  cmd: any,
+  cmd: SimulatorCommand,
   config: HardwareConfig,
   schedules: Schedule[],
   slots: Slot[],
@@ -267,13 +277,7 @@ async function processCommand(
   const now = new Date().toISOString();
   log(`Processing command #${cmd.id} type=${cmd.type}`);
 
-  // Mark running immediately
-  await supabase
-    .from('commands')
-    .update({ status: 'running' })
-    .eq('id', cmd.id);
-
-  let resultStatus: 'done' | 'simulated' = 'simulated';
+  let resultStatus: 'done' | 'failed' | 'simulated' = 'simulated';
   let resultPayload: Record<string, unknown> = {};
   let oledUpdate: OledScreen | null = null;
 
@@ -288,8 +292,8 @@ async function processCommand(
       }
 
       case 'home': {
-        resultStatus  = 'simulated';
-        resultPayload = { note: 'Simulated stepper home' };
+        resultStatus  = 'failed';
+        resultPayload = { error: 'Automatic homing requires a position sensor, which is not installed.' };
         break;
       }
 
@@ -314,8 +318,8 @@ async function processCommand(
 
       case 'test_oled': {
         oledUpdate    = buildTestScreen();
-        resultStatus  = 'done';
-        resultPayload = { note: 'OLED test screen rendered by simulator' };
+        resultStatus  = config.has_oled ? 'done' : 'simulated';
+        resultPayload = { note: config.has_oled ? 'OLED test screen rendered by simulator' : 'OLED disabled' };
         break;
       }
 
@@ -335,21 +339,7 @@ async function processCommand(
         resultPayload = { note: 'Stepper driver not present – simulated 200-step rotation' };
         break;
       }
-      case 'test_hall': {
-        resultStatus  = 'simulated';
-        resultPayload = { note: 'Hall sensor not present – simulated triggered=true' };
-        break;
-      }
-      case 'test_ir': {
-        resultStatus  = 'simulated';
-        resultPayload = { note: 'IR sensor not present – simulated detected=true' };
-        break;
-      }
-      case 'test_servo': {
-        resultStatus  = 'simulated';
-        resultPayload = { note: 'Servo not present – simulated 0°→90°→0° sweep' };
-        break;
-      }
+
       case 'test_button': {
         resultStatus  = 'simulated';
         resultPayload = { note: 'Physical button not present – simulated press event' };
@@ -368,14 +358,14 @@ async function processCommand(
 
       // ── Fallback ─────────────────────────────────────────────────
       default: {
-        resultStatus  = 'done';
-        resultPayload = { note: `Unknown command type "${cmd.type}" – marked done by simulator` };
+        resultStatus  = 'failed';
+        resultPayload = { error: `Unknown command type "${cmd.type}"` };
         break;
       }
     }
   } catch (err) {
     warn(`Error processing command #${cmd.id}:`, err);
-    resultStatus  = 'done';
+    resultStatus  = 'failed';
     resultPayload = { error: String(err) };
   }
 
@@ -386,12 +376,13 @@ async function processCommand(
     done_at: now,
   };
 
-  const { error: updateErr } = await supabase
-    .from('commands')
-    .update(updates)
-    .eq('id', cmd.id);
-
-  if (updateErr) warn(`Failed to update command #${cmd.id}:`, updateErr.message);
+  const { data: completed, error: updateErr } = await supabase.rpc('complete_device_command', {
+    p_id: cmd.id,
+    p_status: resultStatus,
+    p_result: updates.result,
+  });
+  if (updateErr) warn(`Failed to complete command #${cmd.id}:`, updateErr.message);
+  else if (!completed) warn(`Command #${cmd.id} was no longer owned by this simulator.`);
 
   // Update OLED in device_status if needed
   if (oledUpdate) {
@@ -427,7 +418,7 @@ async function checkSchedules(
       const schedMinutes = h * 60 + m;
 
       // Fire window: ±1 minute from scheduled time
-      if (Math.abs(nowMinutes - schedMinutes) > 1) continue;
+      if (nowMinutes !== schedMinutes) continue;
 
       const scheduledFor = scheduledForTodayUTC(sched.time_of_day, tz);
 

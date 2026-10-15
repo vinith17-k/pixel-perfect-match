@@ -6,12 +6,9 @@
  * Connected Peripherals:
  *   - 1.3-inch I2C SH1106 OLED (128x64) (or SSD1306) on D21(SDA), D22(SCL)
  *   - 28BYJ-48 Stepper Motor + ULN2003 on D14, D27, D26, D25
- *   - Micro Servo (SG90) Chute Shutter on D18
- *   - Hall Effect Sensor (A3144) on D33
  *   - Tactile Push Button on D4 (Internal Pull-Up)
  *   - Status LED on D15
  *   - Active Buzzer on D13
- *   - (IR Sensor reserved on D32, currently unpopulated)
  * ==============================================================================
  */
 
@@ -21,23 +18,14 @@
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SH110X.h>
-#include <ESP32Servo.h>
 #include <ArduinoJson.h>
 #include <time.h>
+#include "secrets.h"
 
-// ─── WI-FI CREDENTIALS ────────────────────────────────────────────────────────
-const char* WIFI_SSID     = "moto g85 5G_4167";
-const char* WIFI_PASSWORD = "Shadow@3Zc";
-
-// ─── SUPABASE CREDENTIALS ─────────────────────────────────────────────────────
-const char* SUPABASE_URL  = "https://bhipuyxwjlcfkiguammh.supabase.co";
-const char* SUPABASE_KEY  = "sb_publishable_Tq02iWx1p5wznqj2ifGvvA_gDEEXkuI";
-
-// NTP Timezone settings: Default Asia/Kolkata (UTC + 5:30 = 19800 seconds)
-const long  GMT_OFFSET_SEC      = 19800;
-const int   DAYLIGHT_OFFSET_SEC = 0;
 const char* NTP_SERVER_1        = "pool.ntp.org";
 const char* NTP_SERVER_2        = "time.google.com";
+const long GMT_OFFSET_SEC       = 19800; // Asia/Kolkata (UTC+05:30)
+const int DAYLIGHT_OFFSET_SEC   = 0;
 
 // ─── PIN DEFINITIONS ──────────────────────────────────────────────────────────
 #define PIN_SDA           21
@@ -46,8 +34,6 @@ const char* NTP_SERVER_2        = "time.google.com";
 #define PIN_STEPPER_IN2   27
 #define PIN_STEPPER_IN3   26
 #define PIN_STEPPER_IN4   25
-#define PIN_SERVO         18
-#define PIN_HALL          33
 #define PIN_BUTTON        4
 #define PIN_LED           15
 #define PIN_BUZZER        13
@@ -58,7 +44,6 @@ const char* NTP_SERVER_2        = "time.google.com";
 #define OLED_RESET    -1
 
 Adafruit_SH1106G display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
-Servo chuteServo;
 
 // ─── APPLICATION STATE ────────────────────────────────────────────────────────
 enum DeviceState {
@@ -79,7 +64,7 @@ String activeDose    = "";
 int    activeSlot    = 1;
 String activeEventId = "";
 
-// Stepper Position Tracking (Slots 1 to 8)
+// Stepper position is estimated from the boot position; no homing sensor is installed.
 int currentMotorSlot = 1;
 const int STEPS_PER_SLOT = 512; // 4096 half-steps / 8 slots = 512 steps per 45 deg
 
@@ -91,6 +76,10 @@ unsigned long lastCommandPoll   = 0;
 unsigned long lastHeartbeat     = 0;
 unsigned long lastScheduleSync  = 0;
 unsigned long messageExpiryTime = 0;
+unsigned long nextTokenRefresh  = 0;
+String accessToken;
+String refreshToken;
+String deviceTimezone = "IST-5:30";
 
 const unsigned long COMMAND_INTERVAL_MS  = 3000;   // 3 seconds
 const unsigned long HEARTBEAT_INTERVAL_MS = 10000;  // 10 seconds
@@ -145,31 +134,6 @@ void rotateToSlot(int targetSlot) {
   currentMotorSlot = targetSlot;
 }
 
-void homeDisc() {
-  Serial.println("[Homing] Rotating disc to Hall sensor magnet (Slot 1)...");
-  int stepsMoved = 0;
-  int maxSteps = 2400;
-  while (digitalRead(PIN_HALL) == HIGH && stepsMoved < maxSteps) {
-    stepMotor(4, 1);
-    stepsMoved += 4;
-  }
-  if (digitalRead(PIN_HALL) == LOW) {
-    Serial.println("[Homing] Magnet detected! Homing complete. Set to Slot 1.");
-    currentMotorSlot = 1;
-  } else {
-    Serial.println("[Homing] Hall sensor timeout: magnet not found within 360 deg.");
-  }
-}
-
-// ─── SERVO SHUTTER ────────────────────────────────────────────────────────────
-void openShutter() {
-  chuteServo.write(90);
-}
-
-void closeShutter() {
-  chuteServo.write(0);
-}
-
 // ─── CHIMES ───────────────────────────────────────────────────────────────────
 void beepBuzzer(int durationMs) {
   digitalWrite(PIN_BUZZER, HIGH);
@@ -189,6 +153,10 @@ void confirmChime() {
 void renderOled();
 void updateScreen(const String& name, const String& l0, const String& l1 = "", const String& l2 = "", const String& l3 = "");
 void syncTime();
+bool authenticateDevice(bool useRefreshToken);
+bool ensureDeviceSession();
+void configureSecureClient(WiFiClientSecure& client);
+void addSupabaseHeaders(HTTPClient& http);
 String getFormattedTime();
 String getFormattedDate();
 String getIsoTimestamp();
@@ -206,7 +174,6 @@ void setup() {
 
   // Initialize GPIO Pins
   pinMode(PIN_BUTTON, INPUT_PULLUP);
-  pinMode(PIN_HALL, INPUT_PULLUP);
   pinMode(PIN_LED, OUTPUT);
   pinMode(PIN_BUZZER, OUTPUT);
 
@@ -218,11 +185,6 @@ void setup() {
   digitalWrite(PIN_STEPPER_IN2, LOW);
   digitalWrite(PIN_STEPPER_IN3, LOW);
   digitalWrite(PIN_STEPPER_IN4, LOW);
-
-  // Initialize Servo
-  chuteServo.setPeriodHertz(50);
-  chuteServo.attach(PIN_SERVO, 500, 2400);
-  closeShutter();
 
   // Initialize I2C and scan for OLED address
   Wire.begin(PIN_SDA, PIN_SCL);
@@ -280,8 +242,10 @@ void setup() {
 
   // Initial Supabase Sync
   if (WiFi.status() == WL_CONNECTED) {
-    sendHeartbeat();
-    fetchSchedules();
+    if (ensureDeviceSession()) {
+      sendHeartbeat();
+      fetchSchedules();
+    }
   }
 }
 
@@ -296,28 +260,30 @@ void loop() {
       Serial.println("[Button] Physical button pressed on D4!");
       if (currentState == STATE_ALARM) {
         Serial.println("[Button] Alarm acknowledged via button!");
+        String eventId = activeEventId;
+        String medName = activeMedName;
         dismissAlarm();
         confirmChime();
-        updateScreen("taken", "DOSE TAKEN", activeMedName, "Via Button");
+        updateScreen("taken", "DOSE TAKEN", medName, "Via Button");
         currentState = STATE_MESSAGE;
         messageExpiryTime = millis() + 3000;
 
-        // Synchronize dose taken to Supabase
-        if (activeEventId.length() > 0 && WiFi.status() == WL_CONNECTED) {
+        if (eventId.length() > 0 && WiFi.status() == WL_CONNECTED && ensureDeviceSession()) {
           WiFiClientSecure client;
-          client.setInsecure();
+          configureSecureClient(client);
           HTTPClient http;
-          String patchUrl = String(SUPABASE_URL) + "/rest/v1/dose_events?id=eq." + activeEventId;
-          http.begin(client, patchUrl);
-          http.addHeader("apikey", SUPABASE_KEY);
-          http.addHeader("Content-Type", "application/json");
-          StaticJsonDocument<256> pDoc;
-          pDoc["status"] = "taken";
-          pDoc["taken_at"] = getIsoTimestamp();
-          pDoc["taken_via"] = "button";
+          http.begin(client, String(SUPABASE_URL) + "/rest/v1/rpc/mark_dose_taken");
+          addSupabaseHeaders(http);
+          StaticJsonDocument<192> pDoc;
+          pDoc["p_event_id"] = eventId;
+          pDoc["p_taken_via"] = "button";
           String pBody;
           serializeJson(pDoc, pBody);
-          http.PATCH(pBody);
+          int response = http.POST(pBody);
+          if (response < 200 || response >= 300) {
+            Serial.printf("[Dose] Acknowledgement sync failed (%d): %s\n",
+              response, http.getString().c_str());
+          }
           http.end();
         }
       } else {
@@ -344,6 +310,9 @@ void loop() {
   // 3. Wi-Fi Auto-Reconnect
   if (WiFi.status() != WL_CONNECTED && (now % 10000 < 50)) {
     WiFi.reconnect();
+  }
+  if (WiFi.status() == WL_CONNECTED && (int32_t)(nextTokenRefresh - now) <= 0) {
+    ensureDeviceSession();
   }
 
   // 4. Temporary Message Expiration
@@ -491,35 +460,113 @@ void renderOled() {
 }
 
 // ─── SUPABASE CLIENT ──────────────────────────────────────────────────────────
-WiFiClientSecure createSecureClient() {
-  WiFiClientSecure client;
-  client.setInsecure();
-  return client;
+void configureSecureClient(WiFiClientSecure& client) {
+  client.setCACert(SUPABASE_ROOT_CA);
 }
 
 // ─── POLL COMMANDS ────────────────────────────────────────────────────────────
-void pollCommands() {
-  WiFiClientSecure client = createSecureClient();
-  HTTPClient http;
+void addSupabaseHeaders(HTTPClient& http) {
+  http.addHeader("apikey", SUPABASE_KEY);
+  http.addHeader("Authorization", "Bearer " + accessToken);
+  http.addHeader("Content-Type", "application/json");
+}
 
-  String url = String(SUPABASE_URL) + "/rest/v1/commands?status=eq.pending&order=created_at.asc&limit=1";
-  http.begin(client, url);
+bool authenticateDevice(bool useRefreshToken) {
+  WiFiClientSecure client;
+  configureSecureClient(client);
+  HTTPClient http;
+  String url = String(SUPABASE_URL) + "/auth/v1/token?grant_type=" +
+    (useRefreshToken ? "refresh_token" : "password");
+  if (!http.begin(client, url)) {
+    Serial.println("[Auth] Could not initialize HTTPS authentication request.");
+    return false;
+  }
   http.addHeader("apikey", SUPABASE_KEY);
   http.addHeader("Content-Type", "application/json");
 
-  int httpCode = http.GET();
-  if (httpCode == HTTP_CODE_OK) {
+  StaticJsonDocument<512> request;
+  if (useRefreshToken && refreshToken.length() > 0) {
+    request["refresh_token"] = refreshToken;
+  } else {
+    request["email"] = SAGE_DEVICE_EMAIL;
+    request["password"] = SAGE_DEVICE_PASSWORD;
+  }
+  String body;
+  serializeJson(request, body);
+  int response = http.POST(body);
+  if (response < 200 || response >= 300) {
+    if (response < 0) {
+      Serial.printf("[Auth] HTTPS request failed (%d): %s\n",
+        response, http.errorToString(response).c_str());
+      IPAddress resolvedAddress;
+      String authHost = String(SUPABASE_URL);
+      authHost.replace("https://", "");
+      int pathStart = authHost.indexOf('/');
+      if (pathStart >= 0) authHost.remove(pathStart);
+      bool dnsResolved = WiFi.hostByName(authHost.c_str(), resolvedAddress) == 1;
+      Serial.printf("[Auth] Wi-Fi status=%d, RSSI=%d dBm, DNS resolved=%s\n",
+        WiFi.status(), WiFi.RSSI(), dnsResolved ? "yes" : "no");
+      char clientError[128] = {};
+      int clientErrorCode = client.lastError(clientError, sizeof(clientError));
+      Serial.printf("[Auth] Secure-client detail (%d): %s\n",
+        clientErrorCode, clientError);
+    } else {
+      Serial.printf("[Auth] Authentication rejected (%d): %s\n",
+        response, http.getString().c_str());
+    }
+    http.end();
+    return false;
+  }
+
+  String payload = http.getString();
+  http.end();
+  StaticJsonDocument<4096> result;
+  DeserializationError parseError = deserializeJson(result, payload);
+  if (parseError || !result["access_token"].is<const char*>()) {
+    Serial.println("[Auth] Invalid token response.");
+    return false;
+  }
+  accessToken = result["access_token"].as<String>();
+  refreshToken = result["refresh_token"].as<String>();
+  unsigned long expiresIn = result["expires_in"] | 3600;
+  nextTokenRefresh = millis() + (expiresIn > 120 ? expiresIn - 120 : 60) * 1000UL;
+  Serial.println("[Auth] Device authenticated.");
+  return true;
+}
+
+bool ensureDeviceSession() {
+  if (WiFi.status() != WL_CONNECTED) return false;
+  if (accessToken.isEmpty()) return authenticateDevice(false);
+  if ((int32_t)(nextTokenRefresh - millis()) > 0) return true;
+  if (authenticateDevice(true)) return true;
+  accessToken = "";
+  refreshToken = "";
+  return authenticateDevice(false);
+}
+
+void pollCommands() {
+  if (!ensureDeviceSession()) return;
+  WiFiClientSecure client;
+  configureSecureClient(client);
+  HTTPClient http;
+
+  String url = String(SUPABASE_URL) + "/rest/v1/rpc/claim_next_command";
+  http.begin(client, url);
+  addSupabaseHeaders(http);
+
+  int httpCode = http.POST("{}");
+  if (httpCode >= 200 && httpCode < 300) {
     String payload = http.getString();
     StaticJsonDocument<1024> doc;
     DeserializationError err = deserializeJson(doc, payload);
 
     if (!err && doc.is<JsonArray>() && doc.as<JsonArray>().size() > 0) {
       JsonObject cmd = doc[0];
-      long cmdId = cmd["id"];
+      int64_t cmdId = cmd["id"].as<int64_t>();
       String type = cmd["type"].as<String>();
       JsonObject p = cmd["payload"];
 
-      Serial.printf("[Command] Executing #%ld: %s\n", cmdId, type.c_str());
+      Serial.printf("[Command] Executing #%lld: %s\n", static_cast<long long>(cmdId), type.c_str());
 
       String status = "done";
       String resultNote = "OK";
@@ -552,12 +599,8 @@ void pollCommands() {
         resultNote = "Rotated to slot " + String(slot);
       }
       else if (type == "home") {
-        currentState = STATE_MOVING;
-        updateScreen("moving", "Homing disc", "Finding Slot 1");
-        homeDisc();
-        currentState = STATE_IDLE;
-        updateScreen("home", getFormattedTime(), getFormattedDate(), nextDosePreview);
-        resultNote = "Disc homed to slot 1";
+        status = "failed";
+        resultNote = "Homing requires a position sensor, which is not installed. Position remains estimated from boot.";
       }
       else if (type == "test_stepper") {
         currentState = STATE_MOVING;
@@ -568,13 +611,6 @@ void pollCommands() {
         currentState = STATE_IDLE;
         updateScreen("home", getFormattedTime(), getFormattedDate(), nextDosePreview);
         resultNote = "Stepper rotated forward and reverse";
-      }
-      else if (type == "test_servo") {
-        updateScreen("message", "Testing Servo", "Opening shutter...");
-        openShutter();
-        delay(1500);
-        closeShutter();
-        resultNote = "Servo shutter opened and closed";
       }
       else if (type == "test_led") {
         for (int i = 0; i < 3; i++) {
@@ -592,10 +628,6 @@ void pollCommands() {
       else if (type == "test_button") {
         int val = digitalRead(PIN_BUTTON);
         resultNote = (val == LOW) ? "Button currently PRESSED" : "Button RELEASED (Normal)";
-      }
-      else if (type == "test_hall") {
-        int val = digitalRead(PIN_HALL);
-        resultNote = (val == LOW) ? "Magnet DETECTED (LOW)" : "No magnet nearby (HIGH)";
       }
       else if (type == "load_done") {
         int slot = p["slot"] | 1;
@@ -621,22 +653,24 @@ void pollCommands() {
       }
 
       // PATCH command status back to Supabase
-      HTTPClient patchHttp;
-      String patchUrl = String(SUPABASE_URL) + "/rest/v1/commands?id=eq." + String(cmdId);
-      patchHttp.begin(client, patchUrl);
-      patchHttp.addHeader("apikey", SUPABASE_KEY);
-      patchHttp.addHeader("Content-Type", "application/json");
+      HTTPClient completeHttp;
+      completeHttp.begin(client, String(SUPABASE_URL) + "/rest/v1/rpc/complete_device_command");
+      addSupabaseHeaders(completeHttp);
 
-      StaticJsonDocument<256> patchDoc;
-      patchDoc["status"] = status;
-      patchDoc["result"]["ok"] = true;
-      patchDoc["result"]["note"] = resultNote;
-      patchDoc["done_at"] = getIsoTimestamp();
+      StaticJsonDocument<384> completeDoc;
+      completeDoc["p_id"] = cmdId;
+      completeDoc["p_status"] = status;
+      completeDoc["p_result"]["ok"] = status == "done";
+      completeDoc["p_result"]["note"] = resultNote;
 
-      String patchBody;
-      serializeJson(patchDoc, patchBody);
-      patchHttp.PATCH(patchBody);
-      patchHttp.end();
+      String completeBody;
+      serializeJson(completeDoc, completeBody);
+      int completeCode = completeHttp.POST(completeBody);
+      if (completeCode < 200 || completeCode >= 300) {
+        Serial.printf("[Command] Completion failed (%d): %s\n",
+          completeCode, completeHttp.getString().c_str());
+      }
+      completeHttp.end();
     }
   }
   http.end();
@@ -644,13 +678,14 @@ void pollCommands() {
 
 // ─── HEARTBEAT TELEMETRY ──────────────────────────────────────────────────────
 void sendHeartbeat() {
-  WiFiClientSecure client = createSecureClient();
+  if (!ensureDeviceSession()) return;
+  WiFiClientSecure client;
+  configureSecureClient(client);
   HTTPClient http;
 
   String url = String(SUPABASE_URL) + "/rest/v1/device_status?id=eq.1";
   http.begin(client, url);
-  http.addHeader("apikey", SUPABASE_KEY);
-  http.addHeader("Content-Type", "application/json");
+  addSupabaseHeaders(http);
 
   StaticJsonDocument<512> doc;
   doc["last_seen"]    = getIsoTimestamp();
@@ -670,9 +705,6 @@ void sendHeartbeat() {
   JsonObject parts = doc.createNestedObject("parts_ok");
   parts["oled"]    = true;
   parts["stepper"] = true;
-  parts["hall"]    = true;
-  parts["ir"]      = false;
-  parts["servo"]   = false;
   parts["button"]  = true;
   parts["led"]     = true;
   parts["buzzer"]  = true;
@@ -691,13 +723,14 @@ void sendHeartbeat() {
 
 // ─── FETCH SCHEDULES ──────────────────────────────────────────────────────────
 void fetchSchedules() {
-  WiFiClientSecure client = createSecureClient();
+  if (!ensureDeviceSession()) return;
+  WiFiClientSecure client;
+  configureSecureClient(client);
   HTTPClient http;
 
   String url = String(SUPABASE_URL) + "/rest/v1/schedules?enabled=eq.true&select=*,medicine:medicines(*)&order=time_of_day.asc";
   http.begin(client, url);
-  http.addHeader("apikey", SUPABASE_KEY);
-  http.addHeader("Content-Type", "application/json");
+  addSupabaseHeaders(http);
 
   int httpCode = http.GET();
   if (httpCode == HTTP_CODE_OK) {
@@ -733,9 +766,8 @@ void handleAlarm(const String& medName, const String& dose, int slot, const Stri
   activeSlot    = slot;
   activeEventId = eventId;
 
-  // Automatically rotate disc to the dose slot & open chute shutter
+  // Positioning is estimated because this build has no homing sensor.
   rotateToSlot(slot);
-  openShutter();
 
   updateScreen("alarm", "TAKE MEDICINE", medName, dose + " Slot " + String(slot), "Press button");
   Serial.printf("[Alarm] TRIGGERED: %s (%s) at Slot %d\n", medName.c_str(), dose.c_str(), slot);
@@ -747,7 +779,6 @@ void dismissAlarm() {
   activeDose    = "";
   activeEventId = "";
 
-  closeShutter();
   digitalWrite(PIN_BUZZER, LOW);
   digitalWrite(PIN_LED, LOW);
   updateScreen("home", getFormattedTime(), getFormattedDate(), nextDosePreview);

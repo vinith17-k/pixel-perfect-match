@@ -1,6 +1,6 @@
 # Database Schema & Data Dictionary
 
-The Sage Bot backend uses a PostgreSQL database hosted on **Supabase**. It leverages Supabase Realtime for live WebSocket state updates and PostgREST for standard HTTP REST operations from the ESP32 microcontroller.
+The Sage Bot backend uses Supabase PostgreSQL, Realtime, PostgREST, and Supabase Auth. The web app authenticates as the owner; the ESP32 authenticates as a separate device user.
 
 ---
 
@@ -63,15 +63,14 @@ erDiagram
         jsonb result
         timestamptz created_at
         timestamptz done_at
+        timestamptz claimed_at
+        uuid claimed_by
     }
 
     HARDWARE_CONFIG {
         int id PK
         boolean has_oled
         boolean has_stepper
-        boolean has_hall
-        boolean has_ir
-        boolean has_servo
         boolean has_button
         boolean has_led
         boolean has_buzzer
@@ -172,12 +171,14 @@ Asynchronous message queue for website-to-device remote control.
 | Column | Type | Constraints | Default | Description |
 |---|---|---|---|---|
 | `id` | `bigserial`| `PRIMARY KEY` | Sequence | Monotonically increasing command ID |
-| `type` | `text` | `NOT NULL` | — | Command verb (e.g. `rotate_to_slot`, `home`, `test_oled`) |
+| `type` | `text` | `NOT NULL` | — | Command verb (e.g. `rotate_to_slot`, `test_oled`) |
 | `payload` | `jsonb` | — | `'{}'` | Arguments (e.g. `{"slot": 3, "mode": "dispense"}`) |
 | `status` | `text` | `CHECK (status IN ('pending','running','done','failed','simulated'))` | `'pending'` | Current processing stage |
 | `result` | `jsonb` | — | `NULL` | Execution output from device or simulator |
 | `created_at` | `timestamptz`| — | `now()` | Enqueue timestamp |
 | `done_at` | `timestamptz`| — | `NULL` | Completion timestamp |
+| `claimed_at` | `timestamptz` | `NULL` | Lease time for an atomically claimed command |
+| `claimed_by` | `uuid` | `NULL` | Auth user that owns the active command lease |
 
 ---
 
@@ -189,9 +190,6 @@ Single configuration row (`id = 1`) managing peripheral availability and operati
 | `id` | `int` | `1` (Constraint `id = 1`) | Single-row singleton enforcement |
 | `has_oled` | `boolean` | `true` | SSD1306 0.96" display toggle |
 | `has_stepper` | `boolean` | `false` | Stepper motor & disc indexing toggle |
-| `has_hall` | `boolean` | `false` | Hall effect zero-homing sensor toggle |
-| `has_ir` | `boolean` | `false` | Chute proximity IR sensor toggle |
-| `has_servo` | `boolean` | `false` | Dispenser flap shutter toggle |
 | `has_button` | `boolean` | `false` | Physical acknowledge push button toggle |
 | `has_led` | `boolean` | `false` | Physical status LED toggle |
 | `has_buzzer` | `boolean` | `false` | Physical audio buzzer toggle |
@@ -223,28 +221,11 @@ Single telemetry row (`id = 1`) updated every 10 seconds by the physical device 
 
 ---
 
-## 🔒 Row-Level Security (RLS) Setup
+## Row-Level Security
 
-For the single-user prototype stage, RLS is enabled on all tables, and open prototype policies allow unrestricted access using the `anon` public key:
+The initialization migration enables RLS without creating public policies. The secure-access migration creates the singleton `app_access` mapping and owner/device policies. Create the two Auth users and set their UUIDs in `app_access` before use. The owner can read/write application data; the device has only the reads, telemetry update, and RPC permissions needed by firmware. Anonymous access is revoked.
 
-```sql
-alter table medicines enable row level security;
-alter table slots enable row level security;
-alter table schedules enable row level security;
-alter table dose_events enable row level security;
-alter table commands enable row level security;
-alter table hardware_config enable row level security;
-alter table device_status enable row level security;
-
-do $$
-declare t text;
-begin
-  foreach t in array array['medicines','slots','schedules','dose_events','commands','hardware_config','device_status']
-  loop
-    execute format('create policy "prototype_all_%1$s" on %1$I for all to anon using (true) with check (true)', t);
-  end loop;
-end $$;
-```
+`claim_next_command`, `complete_device_command`, `mark_dose_taken`, and `resolve_device_dose` are security-definer RPCs with explicit owner/device authorization. Command claiming uses a row lock and expiring lease; dose acknowledgement and inventory decrement occur in one transaction.
 
 ---
 

@@ -4,21 +4,17 @@ import {
   Bell,
   Volume2,
   VolumeX,
-  Radio,
   Fingerprint,
   ChevronDown,
   ChevronUp,
   Cpu,
   Zap,
-  Home,
-  CheckCircle2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useHardwareConfig } from '../hooks/useHardwareConfig';
 import { useDeviceStatus } from '../hooks/useDeviceStatus';
 import { useSlots } from '../hooks/useSlots';
 import { useDoseEvents } from '../hooks/useDoseEvents';
-import { useAppStore } from '../stores/appStore';
 import { sendCommand, markTaken } from '../lib/commands';
 import { OledPreview } from './OledPreview';
 
@@ -27,7 +23,6 @@ export function VirtualHardwareStage() {
   const { status, isOnline } = useDeviceStatus();
   const { slots } = useSlots();
   const { dueEvents } = useDoseEvents();
-  const { simulatorMode } = useAppStore();
 
   // Expanded panel state
   const [isExpanded, setIsExpanded] = useState(true);
@@ -35,9 +30,8 @@ export function VirtualHardwareStage() {
   // Local simulated hardware state
   const [currentSlot, setCurrentSlot] = useState(1);
   const [discAngle, setDiscAngle] = useState(0);
+  const cumulativeAngle = useRef<number>(0);
   const [isRotating, setIsRotating] = useState(false);
-  const [isShutterOpen, setIsShutterOpen] = useState(false);
-  const [isIrTriggered, setIsIrTriggered] = useState(false);
   const [isButtonPressed, setIsButtonPressed] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(false);
   const [alertActive, setAlertActive] = useState(false);
@@ -83,14 +77,24 @@ export function VirtualHardwareStage() {
     };
   }, [hasDueDose, soundEnabled, config?.has_buzzer]);
 
-  // Rotate disc smoothly to slot (8 slots, 45 deg per sector)
-  // Sector 1 is 0° to 45°. Moving slot N to the 0°-45° window rotates by -(N-1)*45 deg.
+  // Rotate disc smoothly to slot using shortest-path cumulative angle
+  // Slot 1 = 0°, Slot N goes to the 0°-45° window. Never animates the long way around.
   const rotateToSlot = async (slotNum: number) => {
     if (isRotating) return;
     setIsRotating(true);
     setCurrentSlot(slotNum);
-    const targetAngle = -(slotNum - 1) * 45;
-    setDiscAngle(targetAngle);
+
+    // Absolute target angle for this slot (negative = counter-clockwise)
+    const absoluteTarget = -(slotNum - 1) * 45;
+    // Find the shortest delta from current cumulative position
+    const currentMod = ((cumulativeAngle.current % 360) + 360) % 360;
+    const targetMod = ((absoluteTarget % 360) + 360) % 360;
+    let delta = targetMod - currentMod;
+    if (delta > 180) delta -= 360;
+    if (delta < -180) delta += 360;
+    cumulativeAngle.current += delta;
+    setDiscAngle(cumulativeAngle.current);
+
     toast.info(`Rotating carousel to Slot ${slotNum}...`);
 
     // Dispatch physical command to ESP32 stepper
@@ -102,25 +106,8 @@ export function VirtualHardwareStage() {
 
     setTimeout(() => {
       setIsRotating(false);
-      toast.success(`Slot ${slotNum} aligned at 0°–45° dispensing window!`);
+      toast.success(`Slot ${slotNum} aligned at dispensing window!`);
     }, 1100);
-  };
-
-  // Home disc to Slot 1 (Magnet)
-  const handleHomeDisc = async () => {
-    if (isRotating) return;
-    setIsRotating(true);
-    toast.info('Homing disc to Slot 1 (0°–45° Hall magnet)...');
-    try {
-      await sendCommand('home', {});
-    } catch {}
-
-    setTimeout(() => {
-      setCurrentSlot(1);
-      setDiscAngle(0);
-      setIsRotating(false);
-      toast.success('Disc homed: Slot 1 is at 0°–45° window.');
-    }, 1200);
   };
 
   // Simulate pushing physical tactile button
@@ -138,21 +125,6 @@ export function VirtualHardwareStage() {
     }
   };
 
-  // Simulate dropping pill through chute
-  const handleDropPill = () => {
-    setIsShutterOpen(true);
-    setIsIrTriggered(true);
-    toast.info('Pill passing through dispensing aperture...');
-
-    setTimeout(() => {
-      toast.success('Medicine dispensed into retrieval tray!');
-      setTimeout(() => {
-        setIsIrTriggered(false);
-        setIsShutterOpen(false);
-      }, 700);
-    }, 500);
-  };
-
   // Trigger test alarm
   const handleTriggerAlarm = () => {
     setAlertActive(true);
@@ -163,21 +135,15 @@ export function VirtualHardwareStage() {
     }
   };
 
-  // Fallback slots if DB is empty
+  // Keep the visual slots empty until real inventory is configured.
   const displaySlots = slots.length > 0
     ? slots
     : Array.from({ length: 8 }, (_, i) => ({
         slot_number: i + 1,
-        medicine_id: i < 3 ? `mock-${i}` : null,
-        pills_remaining: i < 3 ? 15 - i * 3 : 0,
-        status: (i < 3 ? 'loaded' : 'empty') as 'loaded' | 'empty',
-        medicine: i === 0
-          ? { name: 'Metformin', color: '#14b8a6', dose: '500mg' }
-          : i === 1
-          ? { name: 'Vitamin D3', color: '#f59e0b', dose: '1000IU' }
-          : i === 2
-          ? { name: 'Amlodipine', color: '#6366f1', dose: '5mg' }
-          : null,
+        medicine_id: null,
+        pills_remaining: 0,
+        status: 'empty' as const,
+        medicine: null,
       }));
 
   return (
@@ -376,23 +342,8 @@ export function VirtualHardwareStage() {
                   <circle cx="135" cy="135" r="14" fill="#0f172a" />
                   <circle cx="135" cy="135" r="5" fill="#94a3b8" />
 
-                  {/* Hall Effect Magnet at Slot 1 (Sector 0°–45°, positioned at mid-angle 22.5°) */}
-                  <circle cx={135 + 110 * Math.cos((22.5 * Math.PI) / 180)} cy={135 + 110 * Math.sin((22.5 * Math.PI) / 180)} r="4" fill="#ef4444" stroke="#fca5a5" strokeWidth="1" />
                 </svg>
 
-                {/* Hall Sensor A3144 on base plate */}
-                <div
-                  className={`absolute w-3.5 h-3.5 rounded-sm border ${
-                    currentSlot === 1
-                      ? 'bg-emerald-500 border-emerald-300 shadow-[0_0_8px_#10b981]'
-                      : 'bg-slate-700 border-slate-600'
-                  }`}
-                  style={{
-                    top: '38px',
-                    right: '42px',
-                  }}
-                  title="Hall Sensor A3144 (GPIO 33): Magnet Homing Reference"
-                />
               </div>
 
               {/* Quick Slot Buttons (1 to 8) */}
@@ -482,18 +433,6 @@ export function VirtualHardwareStage() {
                     <span className="text-[10px] text-muted-foreground">{hasDueDose ? 'BEEPING' : 'IDLE'}</span>
                   </div>
 
-                  {/* Hall Effect Sensor on GPIO 33 */}
-                  <div className="p-2 rounded-lg bg-slate-800/80 border border-slate-700 flex flex-col items-center gap-1">
-                    <span
-                      className={`w-3.5 h-3.5 rounded-full transition-all ${
-                        currentSlot === 1
-                          ? 'bg-emerald-400 shadow-[0_0_10px_#34d399]'
-                          : 'bg-slate-700'
-                      }`}
-                    />
-                    <span className="font-bold">Hall Sensor (D33)</span>
-                    <span className="text-[10px] text-muted-foreground">{currentSlot === 1 ? 'MAGNET OK' : 'SLOT ' + currentSlot}</span>
-                  </div>
                 </div>
 
                 {/* Tactile Push Button and Quick Dispense */}
@@ -512,15 +451,9 @@ export function VirtualHardwareStage() {
                     <span>Push Button (D4)</span>
                   </button>
 
-                  {/* Home Disc Button */}
-                  <button
-                    type="button"
-                    onClick={handleHomeDisc}
-                    className="p-2.5 rounded-xl border bg-slate-800 text-slate-100 hover:bg-slate-700 border-slate-600 shadow-sm flex items-center justify-center gap-2 font-bold text-xs"
-                  >
-                    <Home className="w-4 h-4 text-amber-400" />
-                    <span>Home Disc (Slot 1)</span>
-                  </button>
+                  <p className="col-span-2 text-center text-xs text-slate-500">
+                    Carousel position is estimated; manually align it after reboot.
+                  </p>
                 </div>
               </div>
 

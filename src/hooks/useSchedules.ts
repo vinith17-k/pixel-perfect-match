@@ -4,71 +4,14 @@ import type { Schedule } from '../types';
 
 const LS_SCHEDULES = 'sage_local_schedules';
 
-const DEFAULT_SCHEDULES: Schedule[] = [
-  {
-    id: 'sched-1',
-    slot_number: 1,
-    medicine_id: 'med-1',
-    time_of_day: '08:00:00',
-    days: [0, 1, 2, 3, 4, 5, 6],
-    pills_per_dose: 1,
-    enabled: true,
-    created_at: new Date().toISOString(),
-    medicine: {
-      id: 'med-1',
-      name: 'Metformin',
-      dose: '500mg',
-      notes: 'Take with meal',
-      color: '#14b8a6',
-      created_at: new Date().toISOString(),
-    },
-  },
-  {
-    id: 'sched-2',
-    slot_number: 2,
-    medicine_id: 'med-2',
-    time_of_day: '13:00:00',
-    days: [0, 1, 2, 3, 4, 5, 6],
-    pills_per_dose: 1,
-    enabled: true,
-    created_at: new Date().toISOString(),
-    medicine: {
-      id: 'med-2',
-      name: 'Vitamin D3',
-      dose: '1000IU',
-      notes: 'Morning boost',
-      color: '#f59e0b',
-      created_at: new Date().toISOString(),
-    },
-  },
-  {
-    id: 'sched-3',
-    slot_number: 3,
-    medicine_id: 'med-3',
-    time_of_day: '21:00:00',
-    days: [0, 1, 2, 3, 4, 5, 6],
-    pills_per_dose: 1,
-    enabled: true,
-    created_at: new Date().toISOString(),
-    medicine: {
-      id: 'med-3',
-      name: 'Amlodipine',
-      dose: '5mg',
-      notes: 'Blood pressure',
-      color: '#6366f1',
-      created_at: new Date().toISOString(),
-    },
-  },
-];
-
 function getLocalSchedules(): Schedule[] {
   try {
     const raw = localStorage.getItem(LS_SCHEDULES);
-    if (!raw) return DEFAULT_SCHEDULES;
+    if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_SCHEDULES;
+    return Array.isArray(parsed) ? parsed : [];
   } catch {
-    return DEFAULT_SCHEDULES;
+    return [];
   }
 }
 
@@ -88,7 +31,7 @@ export function useSchedules() {
         .order('time_of_day', { ascending: true });
 
       if (error) throw error;
-      if (data && data.length > 0) {
+      if (data) {
         setSchedules(data as Schedule[]);
         localStorage.setItem(LS_SCHEDULES, JSON.stringify(data));
       } else {

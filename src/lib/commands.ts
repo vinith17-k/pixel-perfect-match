@@ -24,60 +24,43 @@ function saveLocalCommand(cmd: Command) {
   }
 }
 
-/**
- * Insert a command into the commands table and return it.
- * Falls back to local queue if database is unreachable.
- */
+/** Insert a command into the authenticated database queue. */
 export async function sendCommand(
   type: string,
   payload: Record<string, unknown> = {}
 ): Promise<Command> {
-  const localCmd: Command = {
-    id: Date.now(),
-    type,
-    payload,
-    status: 'done',
-    result: { note: 'Dispatched successfully', simulated: true },
-    created_at: new Date().toISOString(),
-    done_at: new Date().toISOString(),
-  };
-
-  saveLocalCommand(localCmd);
-
-  try {
-    const { data, error } = await supabase
-      .from('commands')
-      .insert({ type, payload })
-      .select()
-      .single();
-
-    if (!error && data) {
-      saveLocalCommand(data as Command);
-      return data as Command;
-    }
-  } catch {
-    // Use localCmd
-  }
-
-  return localCmd;
+  const { data, error } = await supabase
+    .from('commands')
+    .insert({ type, payload })
+    .select()
+    .single();
+  if (error) throw error;
+  if (!data) throw new Error('Command insert returned no row.');
+  saveLocalCommand(data as Command);
+  return data as Command;
 }
 
 /**
  * Cancel a pending command.
  */
 export async function cancelCommand(id: number): Promise<void> {
+  const { data, error } = await supabase
+    .from('commands')
+    .update({ status: 'failed', result: { note: 'Cancelled by user' }, done_at: new Date().toISOString() })
+    .eq('id', id)
+    .eq('status', 'pending')
+    .select('id')
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) throw new Error('Command is no longer pending and cannot be cancelled.');
+
   try {
     const cmds = getLocalCommands().map((c) =>
       c.id === id ? { ...c, status: 'failed' as const, result: { note: 'Cancelled by user' } } : c
     );
     localStorage.setItem(LS_COMMANDS, JSON.stringify(cmds));
-
-    await supabase
-      .from('commands')
-      .update({ status: 'failed', result: { note: 'Cancelled by user' }, done_at: new Date().toISOString() })
-      .eq('id', id);
-  } catch {
-    // local update already performed
+  } catch (cacheError) {
+    console.error('Command was cancelled remotely, but the local cache could not be updated:', cacheError);
   }
 }
 
@@ -85,143 +68,91 @@ export async function cancelCommand(id: number): Promise<void> {
  * Mark a dose event as taken via the website.
  */
 export async function markTaken(eventId: string): Promise<void> {
-  // 1. Update local dose events immediately
+  const { data, error } = await supabase.rpc('mark_dose_taken', {
+    p_event_id: eventId,
+    p_taken_via: 'website',
+  });
+  if (error) throw error;
+
+  const timestamp = new Date().toISOString();
+  const result = data && typeof data === 'object' && !Array.isArray(data)
+    ? data as { already_taken?: boolean; slot_number?: number; pills_remaining?: number }
+    : {};
   try {
-    const raw = localStorage.getItem(LS_DOSE_EVENTS);
-    if (raw) {
-      const events = JSON.parse(raw);
-      const updated = events.map((e: { id: string }) =>
-        e.id === eventId
-          ? { ...e, status: 'taken', taken_at: new Date().toISOString(), taken_via: 'website' }
-          : e
+    const rawEvents = localStorage.getItem(LS_DOSE_EVENTS);
+    if (rawEvents) {
+      const events = JSON.parse(rawEvents);
+      const updated = events.map((event: { id: string }) =>
+        event.id === eventId
+          ? { ...event, status: 'taken', taken_at: timestamp, taken_via: 'website', snooze_until: null }
+          : event
       );
       localStorage.setItem(LS_DOSE_EVENTS, JSON.stringify(updated));
     }
-  } catch {
-    // ignore
-  }
 
-  // 2. Decrement pills locally
-  try {
-    const rawSlots = localStorage.getItem(LS_SLOTS);
-    if (rawSlots) {
-      const slots = JSON.parse(rawSlots);
-      if (Array.isArray(slots) && slots.length > 0) {
-        slots[0].pills_remaining = Math.max(0, (slots[0].pills_remaining ?? 1) - 1);
-        localStorage.setItem(LS_SLOTS, JSON.stringify(slots));
+    if (!result.already_taken && typeof result.slot_number === 'number' &&
+        typeof result.pills_remaining === 'number') {
+      const rawSlots = localStorage.getItem(LS_SLOTS);
+      if (rawSlots) {
+        const slots = JSON.parse(rawSlots);
+        const updated = slots.map((slot: { slot_number: number }) =>
+          slot.slot_number === result.slot_number
+            ? { ...slot, pills_remaining: result.pills_remaining, updated_at: timestamp }
+            : slot
+        );
+        localStorage.setItem(LS_SLOTS, JSON.stringify(updated));
       }
     }
-  } catch {
-    // ignore
+  } catch (cacheError) {
+    console.error('Dose was saved remotely, but the local cache could not be updated:', cacheError);
   }
-
-  // 3. Sync to Supabase in background
-  try {
-    await supabase
-      .from('dose_events')
-      .update({ status: 'taken', taken_at: new Date().toISOString(), taken_via: 'website' })
-      .eq('id', eventId);
-  } catch {
-    // ignore
-  }
-
-  await sendCommand('stop_alarm', { event_id: eventId });
 }
 
 /**
  * Snooze a dose event for N minutes.
  */
 export async function snoozeDose(eventId: string, minutes: number): Promise<void> {
-  const snoozeUntil = new Date(Date.now() + minutes * 60000).toISOString();
-
+  const { data, error } = await supabase.rpc('resolve_device_dose', {
+    p_event_id: eventId,
+    p_status: 'snoozed',
+    p_snooze_minutes: minutes,
+  });
+  if (error) throw error;
+  if (!data) throw new Error('Dose is no longer actionable.');
+  const snoozeUntil = new Date(Date.now() + minutes * 60_000).toISOString();
   try {
     const raw = localStorage.getItem(LS_DOSE_EVENTS);
     if (raw) {
       const events = JSON.parse(raw);
-      const updated = events.map((e: { id: string }) =>
-        e.id === eventId ? { ...e, status: 'snoozed', snooze_until: snoozeUntil } : e
-      );
-      localStorage.setItem(LS_DOSE_EVENTS, JSON.stringify(updated));
+      localStorage.setItem(LS_DOSE_EVENTS, JSON.stringify(events.map((event: { id: string }) =>
+        event.id === eventId ? { ...event, status: 'snoozed', snooze_until: snoozeUntil } : event
+      )));
     }
-  } catch {
-    // ignore
+  } catch (cacheError) {
+    console.error('Dose was snoozed remotely, but the local cache could not be updated:', cacheError);
   }
-
-  try {
-    await supabase
-      .from('dose_events')
-      .update({ status: 'snoozed', snooze_until: snoozeUntil })
-      .eq('id', eventId);
-  } catch {
-    // ignore
-  }
-
-  await sendCommand('snooze', { event_id: eventId, minutes });
 }
 
 /**
  * Skip a dose event.
  */
 export async function skipDose(eventId: string): Promise<void> {
+  const { data, error } = await supabase.rpc('resolve_device_dose', {
+    p_event_id: eventId,
+    p_status: 'skipped',
+    p_snooze_minutes: null,
+  });
+  if (error) throw error;
+  if (!data) throw new Error('Dose is no longer actionable.');
   try {
     const raw = localStorage.getItem(LS_DOSE_EVENTS);
     if (raw) {
       const events = JSON.parse(raw);
-      const updated = events.map((e: { id: string }) =>
-        e.id === eventId ? { ...e, status: 'skipped' } : e
-      );
-      localStorage.setItem(LS_DOSE_EVENTS, JSON.stringify(updated));
+      localStorage.setItem(LS_DOSE_EVENTS, JSON.stringify(events.map((event: { id: string }) =>
+        event.id === eventId ? { ...event, status: 'skipped', snooze_until: null } : event
+      )));
     }
-  } catch {
-    // ignore
-  }
-
-  try {
-    await supabase
-      .from('dose_events')
-      .update({ status: 'skipped' })
-      .eq('id', eventId);
-  } catch {
-    // ignore
-  }
-
-  await sendCommand('skip', { event_id: eventId });
-}
-
-/**
- * Decrement pills_remaining for a slot by the given number of pills.
- */
-export async function decrementPills(slotNumber: number, pillsPerDose: number): Promise<void> {
-  try {
-    const rawSlots = localStorage.getItem(LS_SLOTS);
-    if (rawSlots) {
-      const slots = JSON.parse(rawSlots);
-      const target = slots.find((s: { slot_number: number }) => s.slot_number === slotNumber);
-      if (target) {
-        target.pills_remaining = Math.max(0, (target.pills_remaining ?? 0) - pillsPerDose);
-        localStorage.setItem(LS_SLOTS, JSON.stringify(slots));
-      }
-    }
-  } catch {
-    // ignore
-  }
-
-  try {
-    const { data: slot } = await supabase
-      .from('slots')
-      .select('pills_remaining')
-      .eq('slot_number', slotNumber)
-      .single();
-
-    if (slot) {
-      const newCount = Math.max(0, (slot.pills_remaining ?? 0) - pillsPerDose);
-      await supabase
-        .from('slots')
-        .update({ pills_remaining: newCount, updated_at: new Date().toISOString() })
-        .eq('slot_number', slotNumber);
-    }
-  } catch {
-    // ignore
+  } catch (cacheError) {
+    console.error('Dose was skipped remotely, but the local cache could not be updated:', cacheError);
   }
 }
-

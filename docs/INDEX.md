@@ -39,19 +39,15 @@ flowchart TD
     subgraph Hardware["Physical Dispenser (ESP32)"]
         ESP["ESP32 Controller"]
         OLED["0.96 inch I2C OLED (Connected)"]
-        Stepper["ULN2003 + 28BYJ-48 (Planned)"]
-        Hall["A3144 Hall Sensor (Planned)"]
-        Shutter["SG90 Servo + IR Sensor (Planned)"]
-        Inputs["Button / LED / Buzzer (Planned)"]
+        Stepper["ULN2003 + 28BYJ-48"]
+        Inputs["Button / LED / Buzzer"]
     end
 
     UI <-->|Realtime / Polling| Supabase
     Sim <-->|When Simulator ON| Supabase
-    ESP <-->|REST API (Bearer Anon Key)| Supabase
+    ESP <-->|Authenticated REST + RPC (Bearer Anon Key)| Supabase
     ESP --> OLED
     ESP -.-> Stepper
-    ESP -.-> Hall
-    ESP -.-> Shutter
     ESP -.-> Inputs
 ```
 

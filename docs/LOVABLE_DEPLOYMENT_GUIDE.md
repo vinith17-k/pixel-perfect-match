@@ -32,7 +32,7 @@ Design & Layout:
 - Top centered USB-C port indicator with a status LED.
 - 4 metallic corner screws on the chassis.
 - Header: Sage Bot spinning capsule logo, device name, speaker grille, Online/Offline badge, and Theme toggle.
-- Hardware parts status chip row: "N of 8 parts ON" + 8 chips (OLED, Stepper, Hall, IR, Servo, Button, LED, Buzzer).
+- Hardware parts status chip row with five supported parts (OLED, Stepper, Button, LED, Buzzer).
 - Bottom floating navigation bar: Tabs for [Today, Slots, Schedule, History, Hardware, Settings] (keyboard shortcuts: 1-6 for tabs, T for theme).
 - Floating Due Bar: When an alarm is active and user is on another page, an amber alert bar appears above the bottom nav with [Take] and [Snooze] buttons.
 
@@ -41,10 +41,10 @@ Database & Realtime:
 - Enable Realtime subscriptions across all tables with 5-second polling fallback.
 
 Hardware Profile & Graceful Degradation:
-- Default: OLED = ON, all other 7 parts = OFF.
+- Default: OLED = ON, all other supported parts = OFF.
 - Stepper OFF: "Rotate to slot" commands are marked simulated. OLED displays "LOAD SLOT N" or "TAKE SLOT N". UI shows "Virtual Slot" badge.
-- Hall OFF: Homing skipped. Device assumes Slot 1 on boot.
-- IR + Servo OFF: Flap shutter bypassed; alarm proceeds to waiting for taken.
+- Carousel position is estimated from boot; manual alignment is required after restart.
+- No shutter or pill-passage sensor is installed; do not claim a verified dispense.
 - Button OFF: OLED displays "Mark taken in app"; web UI shows prominent "Mark as taken" button.
 - LED / Buzzer OFF: Alerts continue visually without audio/light.
 - OLED OFF: Alerts display in web app; preview card says "OLED disabled".
@@ -54,11 +54,11 @@ Pages:
 2. Slots: Interactive circular SVG Rotor Disc with 8 pockets, rotate animation to dispense chute, slot cards, 3-step Add Medicine flow (rotate command -> medicine form -> load done), Refill, and Edit actions.
 3. Schedule: List view grouped by slot and 7-day Week Grid view. Modal with loaded slot picker, time picker, day toggles, and collision warnings.
 4. History: 14-day adherence bar chart (Recharts), radial adherence gauge, filterable table, and CSV export.
-5. Hardware: Setup progress bar, 8 peripheral cards with pinout tables and live Test buttons, device self-report table, Home Disc button, and Developer Section with Supabase URL, anon key, and REST contract.
-6. Settings: Device parameters, browser device simulator toggle, client PIN lock (4 digits), Demo data loader/clearer, and danger zone reset.
+5. Hardware: Setup progress bar, five supported peripheral cards with pinout tables and live Test buttons, device self-report table, carousel-position limitation, and Developer Section with Supabase URL, publishable key, and authenticated REST/RPC contract.
+6. Settings: Device parameters, browser device simulator toggle, local convenience PIN lock (4 digits), optional demo-data loader/clearer, and danger zone reset.
 
 Simulator Engine:
-- When Simulator Mode is ON: Emulate ESP32 in browser (heartbeat every 10s, process pending commands every 3s, fire scheduled dose_events, mark overdue as missed). Automatically turn off simulator if a real device checks in.
+- When Simulator Mode is ON: Emulate the device in the authenticated browser session (heartbeat every 10s, process claimed commands every 3s, evaluate schedules, and update due events). Automatically turn off simulator if a real device checks in.
 ```
 
 ---

@@ -17,7 +17,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
 
       - name: Install Dependencies
@@ -25,3 +25,9 @@ jobs:
 
       - name: Type Check & Production Build
         run: npm run build
+
+      - name: Tests
+        run: npm test
+
+      - name: Lint
+        run: npm run lint

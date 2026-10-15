@@ -96,13 +96,22 @@ export function Settings() {
     toast.info('PIN lock disabled.');
   };
 
+  const handleSignOut = async () => {
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      toast.error(`Could not sign out: ${error.message}`);
+      return;
+    }
+    toast.success('Signed out.');
+  };
+
   // Load Demo Data
   const handleLoadDemo = async () => {
     try {
       await loadDemoData();
       toast.success('Demo data loaded successfully! (3 meds, 3 schedules, 10-day history)');
-    } catch {
-      toast.error('Failed to load demo data.');
+    } catch (error) {
+      toast.error(error instanceof Error ? `Failed to load demo data: ${error.message}` : 'Failed to load demo data.');
     }
   };
 
@@ -112,8 +121,8 @@ export function Settings() {
     try {
       await clearDemoData();
       toast.success('Demo data cleared.');
-    } catch {
-      toast.error('Failed to clear demo data.');
+    } catch (error) {
+      toast.error(error instanceof Error ? `Failed to clear demo data: ${error.message}` : 'Failed to clear demo data.');
     }
   };
 
@@ -121,31 +130,31 @@ export function Settings() {
   const handleFullReset = async () => {
     setIsResetting(true);
     try {
-      // Clear local storage first
+      const { error: commandsError } = await supabase.from('commands').delete().neq('id', 0);
+      if (commandsError) throw commandsError;
+      const { error: eventsError } = await supabase.from('dose_events').delete().not('id', 'is', null);
+      if (eventsError) throw eventsError;
+      const { error: schedulesError } = await supabase.from('schedules').delete().not('id', 'is', null);
+      if (schedulesError) throw schedulesError;
+      const { error: slotsError } = await supabase
+        .from('slots')
+        .update({ medicine_id: null, pills_remaining: 0, status: 'empty' })
+        .gte('slot_number', 1);
+      if (slotsError) throw slotsError;
+      const { error: medicinesError } = await supabase.from('medicines').delete().not('id', 'is', null);
+      if (medicinesError) throw medicinesError;
+
       localStorage.removeItem('sage_local_commands');
       localStorage.removeItem('sage_local_dose_events');
       localStorage.removeItem('sage_local_schedules');
       localStorage.removeItem('sage_local_medicines');
       localStorage.removeItem('sage_local_slots');
 
-      // Attempt remote cleanup
-      try {
-        await supabase.from('commands').delete().neq('id', 0);
-        await supabase.from('dose_events').delete().not('id', 'is', null);
-        await supabase.from('schedules').delete().not('id', 'is', null);
-        await supabase
-          .from('slots')
-          .update({ medicine_id: null, pills_remaining: 0, status: 'empty' })
-          .gte('slot_number', 1);
-        await supabase.from('medicines').delete().not('id', 'is', null);
-      } catch (remoteErr) {
-        console.warn('Remote database reset warning:', remoteErr);
-      }
-
       toast.success('Database & local storage reset completed.');
       setResetModalOpen(false);
-    } catch {
-      toast.error('Failed to execute full reset.');
+    } catch (error) {
+      console.error('Full database reset failed:', error);
+      toast.error(error instanceof Error ? `Reset failed: ${error.message}` : 'Failed to execute full reset.');
     } finally {
       setIsResetting(false);
     }
@@ -160,13 +169,13 @@ export function Settings() {
         </p>
       </div>
 
-      {/* Prototype Notice Alert */}
-      <div className="p-4 bg-teal-50 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800 text-teal-900 dark:text-teal-200 rounded-xl text-xs font-semibold flex items-start gap-3">
+      <div className="p-4 bg-teal-50 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800 text-teal-900 dark:text-teal-200 rounded-xl text-xs font-semibold flex items-center justify-between gap-3">
         <Shield className="w-5 h-5 text-teal-600 dark:text-teal-400 shrink-0 mt-0.5" />
-        <div>
-          <span className="font-bold block text-sm">Prototype Mode Active</span>
-          The database is currently open to anyone using the Supabase anonymous key. Add Supabase Auth and restrict Row-Level Security policies before sharing public links.
+        <div className="flex-1">
+          <span className="font-bold block text-sm">Owner account active</span>
+          Database access is restricted by Supabase Auth and the configured single-owner policy.
         </div>
+        <button type="button" className="sm shrink-0" onClick={handleSignOut}>Sign out</button>
       </div>
 
       {/* 1. Device Parameters */}

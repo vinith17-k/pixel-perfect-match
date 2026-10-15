@@ -1,6 +1,6 @@
 import type { PartMeta } from '../types';
 
-/** Static metadata for all 8 hardware parts */
+/** Static metadata for the hardware parts supported by the current firmware. */
 export const PART_META: PartMeta[] = [
   {
     key: 'has_oled',
@@ -32,45 +32,7 @@ export const PART_META: PartMeta[] = [
     ],
     wiringNote: "28BYJ-48 + ULN2003 driver. Plug the motor's 5-wire connector into the ULN2003 socket.",
   },
-  {
-    key: 'has_hall',
-    label: 'Hall Sensor',
-    shortLabel: 'Hall',
-    icon: 'Magnet',
-    testCommand: 'test_hall',
-    pins: [
-      { pin: 'D33', label: 'OUT' },
-      { pin: 'VIN', label: 'VCC (5V)' },
-      { pin: 'GND', label: 'GND' },
-    ],
-    wiringNote: 'A3144 sensor. Glue the magnet on the disc at slot 1. Sensor goes on the fixed frame.',
-  },
-  {
-    key: 'has_ir',
-    label: 'IR Sensor',
-    shortLabel: 'IR',
-    icon: 'Eye',
-    testCommand: 'test_ir',
-    pins: [
-      { pin: 'D32', label: 'OUT' },
-      { pin: '3V3', label: 'VCC' },
-      { pin: 'GND', label: 'GND' },
-    ],
-    wiringNote: 'FC-51 proximity sensor. Detects hand below the dispense chute.',
-  },
-  {
-    key: 'has_servo',
-    label: 'Servo (Shutter)',
-    shortLabel: 'Servo',
-    icon: 'Settings2',
-    testCommand: 'test_servo',
-    pins: [
-      { pin: 'D18', label: 'Signal' },
-      { pin: 'VIN', label: 'Red (+5V)' },
-      { pin: 'GND', label: 'Brown (−)' },
-    ],
-    wiringNote: 'SG90 servo. Add a 470µF capacitor across the 5V and GND rails to prevent brownouts.',
-  },
+
   {
     key: 'has_button',
     label: 'Push Button',

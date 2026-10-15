@@ -5,20 +5,10 @@
 
 create extension if not exists "pgcrypto";
 
--- Drop existing tables to ensure clean schema (replaces Lovable multi-user auth tables)
-drop table if exists commands cascade;
-drop table if exists dose_events cascade;
-drop table if exists schedules cascade;
-drop table if exists slots cascade;
-drop table if exists medicines cascade;
-drop table if exists hardware_config cascade;
-drop table if exists device_status cascade;
-drop table if exists profiles cascade;
-
 -- ----------------------------------------------------------
 -- Medicines catalogue
 -- ----------------------------------------------------------
-create table medicines (
+create table if not exists medicines (
   id uuid primary key default gen_random_uuid(),
   name text not null,
   dose text,
@@ -30,19 +20,21 @@ create table medicines (
 -- ----------------------------------------------------------
 -- Slots (physical compartments on the disc)
 -- ----------------------------------------------------------
-create table slots (
+create table if not exists slots (
   slot_number int primary key check (slot_number between 1 and 8),
   medicine_id uuid references medicines(id) on delete set null,
   pills_remaining int default 0,
   status text default 'empty' check (status in ('empty','loaded')),
   updated_at timestamptz default now()
 );
-insert into slots (slot_number) select generate_series(1,8);
+insert into slots (slot_number)
+select generate_series(1,8)
+on conflict (slot_number) do nothing;
 
 -- ----------------------------------------------------------
 -- Schedules
 -- ----------------------------------------------------------
-create table schedules (
+create table if not exists schedules (
   id uuid primary key default gen_random_uuid(),
   slot_number int references slots(slot_number) on delete cascade,
   medicine_id uuid references medicines(id) on delete set null,
@@ -56,7 +48,7 @@ create table schedules (
 -- ----------------------------------------------------------
 -- Dose events (one row per alarm instance)
 -- ----------------------------------------------------------
-create table dose_events (
+create table if not exists dose_events (
   id uuid primary key default gen_random_uuid(),
   schedule_id uuid references schedules(id) on delete set null,
   slot_number int,
@@ -74,7 +66,7 @@ create table dose_events (
 -- ----------------------------------------------------------
 -- Commands (website → device communication queue)
 -- ----------------------------------------------------------
-create table commands (
+create table if not exists commands (
   id bigserial primary key,
   type text not null,
   payload jsonb default '{}'::jsonb,
@@ -87,7 +79,7 @@ create table commands (
 -- ----------------------------------------------------------
 -- Hardware configuration (single row, id = 1)
 -- ----------------------------------------------------------
-create table hardware_config (
+create table if not exists hardware_config (
   id int primary key default 1 check (id = 1),
   has_oled boolean default true,
   has_stepper boolean default false,
@@ -104,12 +96,13 @@ create table hardware_config (
   low_stock_threshold int default 3,
   updated_at timestamptz default now()
 );
-insert into hardware_config (id) values (1);
+insert into hardware_config (id) values (1)
+on conflict (id) do nothing;
 
 -- ----------------------------------------------------------
 -- Device status (single row, id = 1) – written by the ESP32
 -- ----------------------------------------------------------
-create table device_status (
+create table if not exists device_status (
   id int primary key default 1 check (id = 1),
   last_seen timestamptz,
   state text default 'offline',  -- idle | alarm | loading | moving | offline
@@ -122,10 +115,12 @@ create table device_status (
   oled_screen jsonb,             -- {"screen":"home","lines":["10:42","Tue 13 Oct","Next: ..."]}
   parts_ok jsonb                 -- device self-report, e.g. {"oled":true,"stepper":false}
 );
-insert into device_status (id) values (1);
+insert into device_status (id) values (1)
+on conflict (id) do nothing;
 
 -- ----------------------------------------------------------
--- Row-level security (open for prototype / single-user)
+-- Enable RLS without granting prototype-wide access. The second migration
+-- installs the owner/device policies after Auth user IDs are configured.
 -- ----------------------------------------------------------
 alter table medicines enable row level security;
 alter table slots enable row level security;
@@ -135,30 +130,25 @@ alter table commands enable row level security;
 alter table hardware_config enable row level security;
 alter table device_status enable row level security;
 
-do $$
-declare t text;
-begin
-  foreach t in array array[
-    'medicines','slots','schedules','dose_events',
-    'commands','hardware_config','device_status'
-  ]
-  loop
-    execute format(
-      'create policy "prototype_all_%1$s" on %1$I for all to anon using (true) with check (true)',
-      t
-    );
-  end loop;
-end $$;
-
 -- ----------------------------------------------------------
 -- Enable Realtime for all tables
 -- ----------------------------------------------------------
 do $$
+declare
+  t text;
 begin
-  alter publication supabase_realtime add table
-    device_status, commands, dose_events, slots,
-    hardware_config, schedules, medicines;
-exception when others then
-  -- Ignore if already added
-  null;
+  foreach t in array array[
+    'device_status', 'commands', 'dose_events', 'slots',
+    'hardware_config', 'schedules', 'medicines'
+  ]
+  loop
+    if not exists (
+      select 1 from pg_publication_tables
+      where pubname = 'supabase_realtime'
+        and schemaname = 'public'
+        and tablename = t
+    ) then
+      execute format('alter publication supabase_realtime add table public.%I', t);
+    end if;
+  end loop;
 end $$;

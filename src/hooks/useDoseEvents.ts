@@ -21,67 +21,14 @@ function getTodayUtcRange(): { from: string; to: string } {
 
 const LS_DOSE_EVENTS = 'sage_local_dose_events';
 
-function generateDefaultEvents(): DoseEvent[] {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = now.getMonth();
-  const d = now.getDate();
-
-  return [
-    {
-      id: 'event-today-1',
-      schedule_id: 'sched-1',
-      slot_number: 1,
-      medicine_name: 'Metformin',
-      dose: '500mg',
-      scheduled_for: new Date(y, m, d, 8, 0, 0).toISOString(),
-      status: 'taken',
-      taken_at: new Date(y, m, d, 8, 5, 0).toISOString(),
-      taken_via: 'website',
-      snooze_until: null,
-      created_at: new Date().toISOString(),
-    },
-    {
-      id: 'event-today-2',
-      schedule_id: 'sched-2',
-      slot_number: 2,
-      medicine_name: 'Vitamin D3',
-      dose: '1000IU',
-      scheduled_for: new Date(y, m, d, 13, 0, 0).toISOString(),
-      status: 'due',
-      taken_at: null,
-      taken_via: null,
-      snooze_until: null,
-      created_at: new Date().toISOString(),
-    },
-    {
-      id: 'event-today-3',
-      schedule_id: 'sched-3',
-      slot_number: 3,
-      medicine_name: 'Amlodipine',
-      dose: '5mg',
-      scheduled_for: new Date(y, m, d, 21, 0, 0).toISOString(),
-      status: 'due',
-      taken_at: null,
-      taken_via: null,
-      snooze_until: null,
-      created_at: new Date().toISOString(),
-    },
-  ];
-}
-
 function getLocalEvents(): DoseEvent[] {
   try {
     const raw = localStorage.getItem(LS_DOSE_EVENTS);
-    if (!raw) {
-      const def = generateDefaultEvents();
-      localStorage.setItem(LS_DOSE_EVENTS, JSON.stringify(def));
-      return def;
-    }
+    if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) && parsed.length > 0 ? parsed : generateDefaultEvents();
+    return Array.isArray(parsed) ? parsed : [];
   } catch {
-    return generateDefaultEvents();
+    return [];
   }
 }
 
@@ -104,7 +51,7 @@ export function useDoseEvents(dateRange: DateRange = {}) {
         .order('scheduled_for', { ascending: true });
 
       if (error) throw error;
-      if (data && data.length > 0) {
+      if (data) {
         setEvents(data as DoseEvent[]);
         localStorage.setItem(LS_DOSE_EVENTS, JSON.stringify(data));
       } else {

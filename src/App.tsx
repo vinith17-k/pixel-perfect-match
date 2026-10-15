@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { lazy, Suspense, useState, useEffect, useRef } from 'react';
 import {
   AppProvider,
   useAppStore,
@@ -11,17 +11,16 @@ import { useSchedules } from './hooks/useSchedules';
 import { useDoseEvents } from './hooks/useDoseEvents';
 import { PART_META } from './lib/hardware';
 import { startSimulator, fastForward } from './lib/simulator';
-import { isDbEmpty, loadDemoData } from './lib/demo';
 import { markTaken, snoozeDose } from './lib/commands';
 import { Toaster, toast } from 'sonner';
 
 // Pages
-import { Dashboard } from './pages/Dashboard';
-import { Slots } from './pages/Slots';
-import { Schedule } from './pages/Schedule';
-import { History } from './pages/History';
-import { Hardware } from './pages/Hardware';
-import { Settings } from './pages/Settings';
+const Dashboard = lazy(() => import('./pages/Dashboard').then((module) => ({ default: module.Dashboard })));
+const Slots = lazy(() => import('./pages/Slots').then((module) => ({ default: module.Slots })));
+const Schedule = lazy(() => import('./pages/Schedule').then((module) => ({ default: module.Schedule })));
+const History = lazy(() => import('./pages/History').then((module) => ({ default: module.History })));
+const Hardware = lazy(() => import('./pages/Hardware').then((module) => ({ default: module.Hardware })));
+const Settings = lazy(() => import('./pages/Settings').then((module) => ({ default: module.Settings })));
 
 // Overlays
 import { CommandLogDrawer } from './components/CommandLogDrawer';
@@ -43,7 +42,7 @@ import {
 } from 'lucide-react';
 
 function SageBotApp() {
-  const { darkMode, simulatorMode, pinLock, activeTab, deviceName } = useAppStore();
+  const { darkMode, simulatorMode, activeTab, deviceName } = useAppStore();
   const dispatch = useAppDispatch();
 
   const { config } = useHardwareConfig();
@@ -55,17 +54,7 @@ function SageBotApp() {
   const [unlocked, setUnlocked] = useState(false);
   const simCleanupRef = useRef<(() => void) | null>(null);
 
-  // 1. Initial Database Seed Check
-  useEffect(() => {
-    isDbEmpty().then((empty) => {
-      if (empty) {
-        console.info('[Init] DB is empty, seeding demo data...');
-        loadDemoData().catch(console.error);
-      }
-    });
-  }, []);
-
-  // 2. Real Device Auto-Detection
+  // Real Device Auto-Detection
   // If a real device appears online (firmware not "simulator" and updated in last 30s), switch simulator off
   useEffect(() => {
     if (
@@ -80,7 +69,7 @@ function SageBotApp() {
     }
   }, [status, isOnline, simulatorMode, dispatch]);
 
-  // 3. Simulator Lifecycle
+  // Simulator Lifecycle
   useEffect(() => {
     if (simulatorMode && config) {
       console.info('[Simulator] Starting virtual ESP32 engine...');
@@ -98,7 +87,7 @@ function SageBotApp() {
     }
   }, [simulatorMode, config, schedules, slots]);
 
-  // 4. Keyboard Shortcuts: 1-6 for tabs, T for theme, Esc
+  // Keyboard Shortcuts: 1-6 for tabs, T for theme, Esc
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (
@@ -270,7 +259,7 @@ function SageBotApp() {
             onClick={() => dispatch({ type: 'SET_ACTIVE_TAB', payload: 'hardware' })}
           >
             <Zap className="w-3.5 h-3.5 text-amber-500" />
-            <span>{enabledPartsCount} of 8 parts ON:</span>
+            <span>{enabledPartsCount} of {PART_META.length} parts ON:</span>
           </button>
 
           {PART_META.map((part) => {
@@ -297,7 +286,9 @@ function SageBotApp() {
 
         {/* 4. Main Page View Content */}
         <main className="min-h-[460px] pb-10">
-          {renderPage()}
+          <Suspense fallback={<div className="p-8 text-center text-sm text-muted-foreground">Loading page…</div>}>
+            {renderPage()}
+          </Suspense>
         </main>
 
         {/* 5. Floating Due Bar at Bottom (when alarm is active and not on dashboard) */}

@@ -8,7 +8,7 @@ This document details the software architecture, state machines, and data pipeli
 
 ```mermaid
 graph TD
-    subgraph UI_Layer["User Interface Layer (React 18 + Tailwind)"]
+    subgraph UI_Layer["User Interface Layer (React 19 + Tailwind)"]
         Pages["Pages (Dashboard, Slots, Schedule, History, Hardware, Settings)"]
         Components["Enclosure Shell, OLED Preview, Rotor Disc SVG, Modals"]
     end
@@ -21,7 +21,7 @@ graph TD
 
     subgraph Comm_Layer["Communication & Network Layer"]
         RealtimeClient["Supabase Realtime (WebSocket channels)"]
-        RestClient["Supabase REST (Commands & State Mutations)"]
+        RestClient["Supabase REST + Authenticated RPCs"]
         Fallback["5-Second Heartbeat Polling Timer"]
     end
 
@@ -31,7 +31,7 @@ graph TD
 
     subgraph Hardware_Layer["Physical Layer (ESP32)"]
         ESP32["ESP32 Controller Loop"]
-        Peripherals["OLED, Stepper, Hall, IR, Servo, Button, LED, Buzzer"]
+        Peripherals["OLED, Stepper, Button, LED, Buzzer"]
     end
 
     Pages --> Components
